@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SMT Inventory</title>
+<title>SMT Machine Inventory </title>
 <meta name="theme-color" content="#042C53"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -484,11 +484,13 @@ const APP={
   search:'', filterFactory:'all', filterStatus:'all',
   selMachineId:null, selMachineIds:[], transferTo:'',
   bulkRows:[],
+  addQueue:[],
   activeTab:'list',
   notifShown:false,
   tlogsPage:1,
   tlogsDateFrom:'', tlogsDateTo:'',
-  tlogsShowDateFilter:false
+  tlogsShowDateFilter:false,
+  svcSelIds:[], svcSearch:''
 };
 
 /* ════════════════════════════════════════════
@@ -654,16 +656,12 @@ async function doLogin(){
       return;
     }
     const userData={id:snap.docs[0].id,...snap.docs[0].data()};
+    // Save session so page refresh keeps user logged in
+    localStorage.setItem('smSession',JSON.stringify({id:userData.id,username:userData.username,name:userData.name,role:userData.role}));
     errEl.style.display='none';APP.user=userData;
     document.getElementById('authScreen').classList.remove('vis');
     document.getElementById('app').classList.add('vis');
-    document.getElementById('uAvatar').textContent=userData.name[0].toUpperCase();
-    document.getElementById('uName').textContent=userData.name;
-    document.getElementById('uRole').textContent=userData.role;
-    if(userData.role==='admin') document.getElementById('nav-users').classList.remove('hidden');
-    if(!can('addMachine')){
-      ['nav-add','nav-bulk','nav-transfer'].forEach(id=>document.getElementById(id).classList.add('hidden'));
-    }
+    applyUserUI(userData);
     document.getElementById('loadMsg').textContent='Loading inventory…';
     document.getElementById('loadOverlay').classList.remove('gone');
     startListeners();
@@ -676,9 +674,10 @@ async function doLogin(){
 }
 function doLogout(){
   stopListeners();closeModal();
+  localStorage.removeItem('smSession');
   Object.assign(APP,{user:null,machines:[],transfers:[],serviceRecords:[],users:[],auditTrail:[],
     view:'dashboard',search:'',filterFactory:'all',filterStatus:'all',
-    selMachineId:null,selMachineIds:[],transferTo:'',bulkRows:[],activeTab:'list',notifShown:false,
+    selMachineId:null,selMachineIds:[],transferTo:'',bulkRows:[],addQueue:[],activeTab:'list',notifShown:false,
     tlogsPage:1,tlogsDateFrom:'',tlogsDateTo:'',tlogsShowDateFilter:false});
   document.getElementById('app').classList.remove('vis');
   ['nav-users','nav-add','nav-bulk','nav-transfer'].forEach(id=>document.getElementById(id).classList.remove('hidden'));
@@ -899,53 +898,194 @@ function renderMachines(){
 /* ════════════════════════════════════════════
    ADD / EDIT MACHINE
 ════════════════════════════════════════════ */
+const SEQ_START = 18790; // last used number — next will be 18790
+
+function getNextSeqNum(){
+  let max = SEQ_START;
+  APP.machines.forEach(m=>{
+    const n = parseInt(m.seqNum, 10);
+    if(!isNaN(n) && n > max) max = n;
+  });
+  return max + 1;
+}
+function getQueuedNextSeqNum(){
+  return getNextSeqNum() + APP.addQueue.length;
+}
+
 function renderAdd(){
   const fOpts=FACTORIES.map(f=>`<option value="${f}">${f}</option>`).join('');
   const sOpts=STATUS_OPTS.map(s=>`<option value="${s}">${s}</option>`).join('');
+  const nextSeq=getQueuedNextSeqNum();
+
+  const queueRows=APP.addQueue.length?APP.addQueue.map((m,idx)=>`
+    <tr>
+      <td><span class="tag">${m.assetNum||'—'}</span></td>
+      <td style="font-family:'Courier New',monospace;font-size:12px;color:#0f172a;font-weight:700">${m.seqNum||'—'}</td>
+      <td>${m.countNum||'—'}</td>
+      <td><strong>${m.brand||'—'}</strong> ${m.model?`<span style="color:#64748b">· ${m.model}</span>`:''}</td>
+      <td><span class="tag tag-ser">${m.serialNum||'—'}</span></td>
+      <td>${factoryBadge(m.factory)}</td>
+      <td>${statusBadge(m.status||'Active')}</td>
+      <td style="white-space:nowrap"><button class="btn btn-danger btn-xs" onclick="removeQueuedMachine(${idx})">Remove</button></td>
+    </tr>`).join('')
+    : `<tr><td colspan="8"><div class="empty" style="padding:22px 12px"><p>No machines added to the list yet</p></div></td></tr>`;
+
   return `
-    <div class="ph"><div class="ph-left"><h2>Add Machine</h2><p>Register a new sewing machine into Firebase</p></div></div>
-    <div class="fc" style="max-width:720px">
+    <div class="ph"><div class="ph-left"><h2>Add Machine</h2><p>Fill the form, add machines to the list, then save the whole list to Firebase</p></div></div>
+
+    <div class="fc" style="max-width:980px">
       <div class="fs-title">Machine Details</div>
       <div class="form-grid">
         <div class="fg"><label class="fl">Asset Number <span class="req">*</span></label><input class="fi" id="fAsset" placeholder="e.g. AST-F1-025"/></div>
-        <div class="fg"><label class="fl">Sequence Number <span class="req">*</span></label><input class="fi" id="fSeq" placeholder="e.g. 025"/></div>
+
+        <div class="fg">
+          <label class="fl">Sequence Number <span class="req">*</span></label>
+          <input class="fi" id="fSeqDisplay" value="${nextSeq}" readonly style="background:#EBF4FF;border-color:#B5D4F4;color:#042C53;font-weight:800;font-family:'Courier New',monospace;letter-spacing:.05em"/>
+          <span class="form-hint">Auto-generated for the next machine added to the list</span>
+          <input type="hidden" id="fSeq" value="${nextSeq}"/>
+        </div>
+
         <div class="fg"><label class="fl">Count Number <span class="req">*</span>
           <span style="font-size:10px;color:#185FA5;font-weight:600;margin-left:4px">— unique recognition no.</span></label>
           <input class="fi" id="fCount" placeholder="e.g. CNT-001"/>
           <span class="form-hint">Your internal count reference for this machine</span>
         </div>
+
         <div class="fg"><label class="fl">Brand / Make <span class="req">*</span></label>
           <input class="fi" id="fBrand" placeholder="e.g. JUKI, Brother" list="brandList"/>
           <datalist id="brandList"><option value="JUKI"/><option value="Brother"/><option value="Singer"/><option value="Siruba"/><option value="Pegasus"/><option value="Kansai"/><option value="Yamato"/><option value="Sunstar"/></datalist>
         </div>
+
         <div class="fg"><label class="fl">Model <span class="req">*</span></label><input class="fi" id="fModel" placeholder="e.g. DDL-8700"/></div>
         <div class="fg"><label class="fl">Serial Number <span class="req">*</span></label><input class="fi" id="fSerial" placeholder="e.g. JK8700-00125"/></div>
+
         <div class="fg"><label class="fl">Factory <span class="req">*</span></label>
           <select class="fi-sel" id="fFactory"><option value="">— Select —</option>${fOpts}</select></div>
+
         <div class="fg"><label class="fl">Machine Status</label>
           <select class="fi-sel" id="fStatus">${sOpts}</select></div>
+
         <div class="fg full"><label class="fl">Description</label>
           <textarea class="fi-ta" id="fDesc" placeholder="e.g. Single Needle Lockstitch Machine, 5500 rpm"></textarea></div>
       </div>
+
       <div class="form-actions">
-        <button class="btn btn-secondary" onclick="nav('machines')">Cancel</button>
-        <button class="btn btn-primary" id="saveMachineBtn" onclick="saveMachine()">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>Save to Firebase</button>
+        <button class="btn btn-secondary" onclick="clearAddForm()">Clear Form</button>
+        <button class="btn btn-primary" onclick="addMachineToList()">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add to List</button>
+      </div>
+    </div>
+
+    <div class="fc" style="max-width:980px;margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <div class="fs-title" style="margin:0">Machine Adding List</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge" style="background:#EEF2FF;color:#3730A3">${APP.addQueue.length} in list</span>
+          <button class="btn btn-secondary btn-sm" onclick="clearQueuedMachines()" ${APP.addQueue.length?'':'disabled'}>Clear List</button>
+          <button class="btn btn-success btn-sm" id="saveMachineBtn" onclick="saveQueuedMachines()" ${APP.addQueue.length?'':'disabled'}>
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>Save List to Firebase</button>
+        </div>
+      </div>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              <th>Asset #</th>
+              <th>Sequence #</th>
+              <th>Count #</th>
+              <th>Machine</th>
+              <th>Serial #</th>
+              <th>Factory</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${queueRows}</tbody>
+        </table>
       </div>
     </div>`;
 }
 
-async function saveMachine(){
+function clearAddForm(){
+  ['fAsset','fCount','fBrand','fModel','fSerial','fFactory','fDesc'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.value='';
+  });
+  const st=document.getElementById('fStatus');if(st) st.value='Active';
+  const nextSeq=getQueuedNextSeqNum();
+  const seq=document.getElementById('fSeq');if(seq) seq.value=nextSeq;
+  const seqDisplay=document.getElementById('fSeqDisplay');if(seqDisplay) seqDisplay.value=nextSeq;
+  const first=document.getElementById('fAsset');if(first) first.focus();
+}
+
+function addMachineToList(){
   const g=id=>document.getElementById(id).value.trim();
   const asset=g('fAsset'),seq=g('fSeq'),countNum=g('fCount'),brand=g('fBrand'),model=g('fModel'),serial=g('fSerial'),factory=g('fFactory'),desc=g('fDesc'),status=g('fStatus')||'Active';
-  if(!asset||!seq||!countNum||!brand||!model||!serial||!factory){toast('Fill in all required fields.','error');return;}
-  if(APP.machines.find(m=>m.assetNum===asset)){toast('Asset number already exists!','error');return;}
-  if(APP.machines.find(m=>m.countNum===countNum)){toast('Count number already exists!','error');return;}
-  const btn=document.getElementById('saveMachineBtn');btn.disabled=true;btn.innerHTML='<span class="btn-spin"></span> Saving…';
+  if(!asset||!countNum||!brand||!model||!serial||!factory){toast('Fill in all required fields.','error');return;}
+
+  const assetExists=APP.machines.find(m=>(m.assetNum||'').toLowerCase()===asset.toLowerCase())||APP.addQueue.find(m=>(m.assetNum||'').toLowerCase()===asset.toLowerCase());
+  if(assetExists){toast('Asset number already exists!','error');return;}
+  const countExists=APP.machines.find(m=>(m.countNum||'').toLowerCase()===countNum.toLowerCase())||APP.addQueue.find(m=>(m.countNum||'').toLowerCase()===countNum.toLowerCase());
+  if(countExists){toast('Count number already exists!','error');return;}
+  const serialExists=APP.machines.find(m=>(m.serialNum||'').toLowerCase()===serial.toLowerCase())||APP.addQueue.find(m=>(m.serialNum||'').toLowerCase()===serial.toLowerCase());
+  if(serialExists){toast('Serial number already exists!','error');return;}
+
+  APP.addQueue.push({
+    assetNum:asset,
+    seqNum:String(seq),
+    countNum,
+    brand,
+    model,
+    serialNum:serial,
+    description:desc,
+    factory,
+    status
+  });
+  toast(`Added to list. Seq # ${seq} reserved.`,'success');
+  render();
+}
+
+function removeQueuedMachine(idx){
+  APP.addQueue.splice(idx,1);
+  toast('Removed from the adding list.','info');
+  render();
+}
+
+function clearQueuedMachines(){
+  APP.addQueue=[];
+  toast('Machine adding list cleared.','info');
+  render();
+}
+
+async function saveMachine(){ return saveQueuedMachines(); }
+
+async function saveQueuedMachines(){
+  if(!APP.addQueue.length){toast('Add at least one machine to the list.','error');return;}
+  const btn=document.getElementById('saveMachineBtn');
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="btn-spin" style="border-top-color:#14532d"></span> Saving…';}
   try{
-    await machinesCol.add({assetNum:asset,seqNum:seq,countNum,brand,model,serialNum:serial,description:desc,factory,status,addedAt:firebase.firestore.FieldValue.serverTimestamp()});
-    toast('Machine saved to Firebase!','success');nav('machines');
-  }catch(e){toast('Save failed: '+e.message,'error');btn.disabled=false;btn.innerHTML='Save to Firebase';}
+    for(let i=0;i<APP.addQueue.length;i+=400){
+      const batch=db.batch();
+      APP.addQueue.slice(i,i+400).forEach(m=>{
+        batch.set(machinesCol.doc(),{
+          assetNum:m.assetNum,seqNum:String(m.seqNum),countNum:m.countNum,brand:m.brand,model:m.model,
+          serialNum:m.serialNum,description:m.description,factory:m.factory,status:m.status||'Active',
+          addedAt:firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await batch.commit();
+    }
+    const savedCount=APP.addQueue.length;
+    APP.addQueue=[];
+    toast(`${savedCount} machine${savedCount!==1?'s':''} saved to Firebase!`,'success');
+    nav('machines');
+  }catch(e){
+    toast('Save failed: '+e.message,'error');
+    if(btn){
+      btn.disabled=false;
+      btn.innerHTML='<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>Save List to Firebase';
+    }
+  }
 }
 
 function openEditMachine(id){
@@ -1029,15 +1169,16 @@ function renderBulk(){
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0])"/>
       <p style="font-size:12px;color:#94a3b8;margin-top:10px;line-height:1.8">
-        <strong style="color:#374151">Required:</strong> AssetNum, SeqNum, Brand, Model, SerialNum, Factory &nbsp;·&nbsp;
-        <strong style="color:#374151">Optional:</strong> Description, Status &nbsp;·&nbsp;
+        <strong style="color:#374151">Required:</strong> AssetNum, Brand, Model, SerialNum, Factory &nbsp;·&nbsp;
+        <strong style="color:#374151">Optional:</strong> Description, Status, CountNum &nbsp;·&nbsp;
+        <strong style="color:#185FA5;font-weight:700">Seq # is auto-assigned</strong> — no need to include it in the file &nbsp;·&nbsp;
         <strong style="color:#374151">Factories:</strong> Factory 1 · Factory 3 · Factory 4 · Factory 5
       </p>${pre}
     </div>`;
 }
 const isValidRow=r=>!!(r.AssetNum&&r.Brand&&r.Model&&r.SerialNum&&FACTORIES.includes(r.Factory));
 function downloadTemplate(){
-  const csv='AssetNum,SeqNum,Brand,Model,SerialNum,Description,Factory,Status\nAST-F1-025,025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active\n';
+  const csv='AssetNum,CountNum,Brand,Model,SerialNum,Description,Factory,Status\nAST-F1-025,CNT-025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active\nAST-F3-010,CNT-010,Brother,S-1000A,BR-S1000-110,High Speed Lockstitch Machine,Factory 3,Active\n';
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='machine_template.csv';a.click();
 }
 function handleDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('drag');if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);}
@@ -1053,7 +1194,8 @@ function handleFile(file){
       const data=XLSX.utils.sheet_to_json(ws,{defval:''});
       APP.bulkRows=data.map(r=>({
         AssetNum:String(r.AssetNum||r['Asset Number']||r['Asset #']||r.assetNum||'').trim(),
-        SeqNum:String(r.SeqNum||r['Seq #']||r.seqNum||'').trim(),
+        SeqNum:'',// auto-assigned — ignored from file
+        CountNum:String(r.CountNum||r['Count Number']||r['Count #']||r.countNum||'').trim(),
         Brand:String(r.Brand||r['Brand / Make']||r.brand||'').trim(),
         Model:String(r.Model||r.model||'').trim(),
         SerialNum:String(r.SerialNum||r['Serial Number']||r['Serial #']||r.serialNum||'').trim(),
@@ -1070,20 +1212,22 @@ async function importBulk(){
   const btn=document.getElementById('importBtn');btn.disabled=true;btn.innerHTML='<span class="btn-spin" style="border-top-color:#14532d"></span> Importing…';
   const existing=new Set(APP.machines.map(m=>m.assetNum));
   let added=0,skipped=0;
+  // Auto seq: start from next available number
+  let nextSeq=getNextSeqNum();
   for(let i=0;i<valid.length;i+=400){
     const batch=db.batch();
     valid.slice(i,i+400).forEach(r=>{
       if(existing.has(r.AssetNum)){skipped++;return;}
-      batch.set(machinesCol.doc(),{assetNum:r.AssetNum,seqNum:r.SeqNum,brand:r.Brand,model:r.Model,
+      batch.set(machinesCol.doc(),{assetNum:r.AssetNum,seqNum:String(nextSeq),countNum:r.CountNum||'',brand:r.Brand,model:r.Model,
         serialNum:r.SerialNum,description:r.Description,factory:r.Factory,
         status:STATUS_OPTS.includes(r.Status)?r.Status:'Active',
         addedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      added++;
+      nextSeq++;added++;
     });
     try{await batch.commit();}catch(e){toast('Import failed: '+e.message,'error');return;}
   }
   APP.bulkRows=[];
-  toast(`Imported ${added} machines.${skipped?' '+skipped+' skipped.':''}`, 'success');
+  toast(`Imported ${added} machines. Seq # ${getNextSeqNum()-added}–${getNextSeqNum()-1} assigned.${skipped?' '+skipped+' skipped.':''}`, 'success');
   nav('machines');
 }
 
@@ -1566,55 +1710,208 @@ async function openAuditTrail(){
    SERVICE RECORDS
 ════════════════════════════════════════════ */
 function openAddService(machineId){
-  const mOpts=APP.machines.map(x=>`<option value="${x.id}"${x.id===machineId?' selected':''}>${x.assetNum} — ${x.brand} ${x.model} (${x.factory})</option>`).join('');
-  const typeOpts=SVC_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('');
+  // Pre-select machine if called from a specific machine row
+  APP.svcSelIds = machineId ? [machineId] : [];
+  APP.svcSearch = '';
+
   const today=new Date().toISOString().slice(0,10);
-  // Auto next due = +4 months
   const nextDue=new Date();nextDue.setMonth(nextDue.getMonth()+4);
   const nextDueVal=nextDue.toISOString().slice(0,10);
-  openModal('Add Service Record',`
-    <div class="form-grid">
-      <div class="fg full"><label class="fl">Machine <span class="req">*</span></label>
-        <select class="fi-sel" id="sv-machine" onchange="updateNextDueFromMachine(this.value)">${mOpts}</select></div>
-      <div class="fg"><label class="fl">Service Date <span class="req">*</span></label>
-        <input class="fi" id="sv-date" type="date" value="${today}" onchange="autoNextDue()"/></div>
-      <div class="fg"><label class="fl">Next Due Date <span style="font-size:11px;color:#185FA5;font-weight:600">(auto: +4 months)</span></label>
-        <input class="fi" id="sv-next" type="date" value="${nextDueVal}"/></div>
-      <div class="fg"><label class="fl">Service Type <span class="req">*</span></label>
-        <select class="fi-sel" id="sv-type">${typeOpts}</select></div>
-      <div class="fg"><label class="fl">Parts Replaced / Work Done</label>
-        <input class="fi" id="sv-parts" placeholder="e.g. Oil change, Feed dog, Needle bar…"/></div>
-      <div class="fg full"><label class="fl">Notes</label>
-        <textarea class="fi-ta" id="sv-notes" placeholder="Service notes, observations…" style="min-height:65px"></textarea></div>
-    </div>`,
+  const typeOpts=SVC_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('');
+
+  openModal('Add Service Record',_buildSvcModalBody(today,nextDueVal,typeOpts),
     `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-     <button class="btn btn-primary" onclick="saveService()">Save Service Record</button>`);
+     <button class="btn btn-primary" id="saveSvcBtn" onclick="saveService()">
+       <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+       Save Service Record(s)</button>`,
+    true); // large modal
+}
+
+function _buildSvcModalBody(today,nextDueVal,typeOpts){
+  const q=APP.svcSearch.toLowerCase();
+  let machineList=[...APP.machines];
+  if(q) machineList=machineList.filter(m=>
+    (m.assetNum||'').toLowerCase().includes(q)||
+    (m.seqNum||'').toLowerCase().includes(q)||
+    (m.countNum||'').toLowerCase().includes(q)||
+    (m.serialNum||'').toLowerCase().includes(q)||
+    (m.brand||'').toLowerCase().includes(q)||
+    (m.model||'').toLowerCase().includes(q)
+  );
+
+  const selIds=APP.svcSelIds;
+  const selMachines=selIds.map(id=>APP.machines.find(m=>m.id===id)).filter(Boolean);
+
+  const machineRows=machineList.map(m=>{
+    const isSel=selIds.includes(m.id);
+    return `<tr style="cursor:pointer;${isSel?'background:#EBF4FF;':''}" onclick="svcToggle('${m.id}','${today}','${nextDueVal}')">
+      <td style="padding:7px 10px">
+        <input type="checkbox" ${isSel?'checked':''} style="accent-color:#185FA5;width:13px;height:13px"
+          onchange="svcToggle('${m.id}','${today}','${nextDueVal}')" onclick="event.stopPropagation()"/>
+      </td>
+      <td style="padding:7px 10px"><span class="tag" style="font-size:11px">${m.assetNum||'—'}</span></td>
+      <td style="padding:7px 10px;font-family:'Courier New',monospace;font-size:11px;color:#374151;font-weight:700">${m.seqNum||'—'}</td>
+      <td style="padding:7px 10px"><span class="tag" style="background:#f0fdf4;color:#166534;font-size:11px">${m.countNum||'—'}</span></td>
+      <td style="padding:7px 10px"><span class="tag tag-ser" style="font-size:11px">${m.serialNum||'—'}</span></td>
+      <td style="padding:7px 10px;font-size:13px"><strong>${m.brand||''}</strong> ${m.model||''}</td>
+      <td style="padding:7px 10px">${factoryBadge(m.factory)}</td>
+    </tr>`;
+  }).join('');
+
+  const chips=selMachines.length?`
+    <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;min-height:36px">
+      ${selMachines.map(m=>`
+        <span style="display:inline-flex;align-items:center;gap:4px;background:#EBF4FF;border:1px solid #B5D4F4;border-radius:6px;padding:2px 7px;font-size:12px;font-weight:700;color:#042C53">
+          ${m.assetNum} <span style="color:#94a3b8;font-size:11px">${m.seqNum?'· '+m.seqNum:''}</span>
+          <button onclick="svcToggle('${m.id}','${today}','${nextDueVal}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;line-height:1;padding:0 1px;margin-left:2px" title="Remove">×</button>
+        </span>`).join('')}
+    </div>` : `<div style="padding:8px 10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;font-size:12px;color:#94a3b8">No machines selected — tick checkboxes above</div>`;
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- LEFT: Machine picker -->
+      <div>
+        <div class="fs-title">Select Machines</div>
+        <div style="position:relative;margin-bottom:8px">
+          <svg style="position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="#9ca3af" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input style="padding:7px 10px 7px 30px;border:1px solid #d1d5db;border-radius:8px;font-size:12px;outline:none;width:100%"
+            type="text" placeholder="Seq #, Serial #, Asset #, Count #, Model…"
+            value="${APP.svcSearch}"
+            oninput="APP.svcSearch=this.value;_refreshSvcModal('${today}','${nextDueVal}')"/>
+        </div>
+        <div style="max-height:240px;overflow-y:auto;border-radius:8px;border:1px solid #e2e8f0">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:#f8fafc">
+              <th style="padding:7px 10px;width:28px;text-align:left;font-size:10px;font-weight:800;color:#374151;border-bottom:1px solid #e2e8f0"></th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#374151;border-bottom:1px solid #e2e8f0">ASSET #</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#185FA5;border-bottom:1px solid #e2e8f0">SEQ #</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#374151;border-bottom:1px solid #e2e8f0">COUNT #</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#185FA5;border-bottom:1px solid #e2e8f0">SERIAL #</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#185FA5;border-bottom:1px solid #e2e8f0">MACHINE</th>
+              <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:800;color:#374151;border-bottom:1px solid #e2e8f0">FACTORY</th>
+            </tr></thead>
+            <tbody>${machineRows||'<tr><td colspan="7" style="padding:20px;text-align:center;color:#94a3b8;font-size:13px">No machines found</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div style="margin-top:8px;font-size:11px;font-weight:700;color:#374151">${selIds.length} machine${selIds.length!==1?'s':''} selected:</div>
+        ${chips}
+      </div>
+      <!-- RIGHT: Service details -->
+      <div>
+        <div class="fs-title">Service Details</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="fg">
+            <label class="fl">Service Date <span class="req">*</span></label>
+            <input class="fi" id="sv-date" type="date" value="${today}" onchange="autoNextDue()"/>
+          </div>
+          <div class="fg">
+            <label class="fl">Next Due Date <span style="font-size:11px;color:#185FA5;font-weight:600">(auto: +4 months)</span></label>
+            <input class="fi" id="sv-next" type="date" value="${nextDueVal}"/>
+          </div>
+          <div class="fg">
+            <label class="fl">Service Type <span class="req">*</span></label>
+            <select class="fi-sel" id="sv-type">${typeOpts}</select>
+          </div>
+          <div class="fg">
+            <label class="fl">Work Done / Parts Replaced</label>
+            <input class="fi" id="sv-parts" placeholder="e.g. Oil change, Feed dog, Needle bar…"/>
+          </div>
+          <div class="fg">
+            <label class="fl">Notes</label>
+            <textarea class="fi-ta" id="sv-notes" placeholder="Service notes, observations…" style="min-height:60px"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function svcToggle(id, today, nextDueVal){
+  const idx=APP.svcSelIds.indexOf(id);
+  if(idx===-1) APP.svcSelIds.push(id);
+  else APP.svcSelIds.splice(idx,1);
+  _refreshSvcModal(today, nextDueVal);
+}
+
+function _refreshSvcModal(today, nextDueVal){
+  const typeOpts=SVC_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('');
+  // Preserve form values before refresh
+  const svcDate=(document.getElementById('sv-date')||{}).value||today;
+  const svcNext=(document.getElementById('sv-next')||{}).value||nextDueVal;
+  const svcType=(document.getElementById('sv-type')||{}).value||'';
+  const svcParts=(document.getElementById('sv-parts')||{}).value||'';
+  const svcNotes=(document.getElementById('sv-notes')||{}).value||'';
+  const freshTypeOpts=SVC_TYPES.map(t=>`<option value="${t}"${t===svcType?' selected':''}>${t}</option>`).join('');
+  document.getElementById('modalBody').innerHTML=_buildSvcModalBody(svcDate,svcNext,typeOpts);
+  // Re-apply saved values
+  const d=document.getElementById('sv-date');if(d) d.value=svcDate;
+  const n=document.getElementById('sv-next');if(n) n.value=svcNext;
+  const tp=document.getElementById('sv-type');if(tp) tp.innerHTML=freshTypeOpts;
+  const p=document.getElementById('sv-parts');if(p) p.value=svcParts;
+  const nt=document.getElementById('sv-notes');if(nt) nt.value=svcNotes;
+  // Restore search focus
+  requestAnimationFrame(()=>{
+    const si=document.querySelector('#modalBody input[type="text"]');
+    if(si){ si.focus(); try{si.setSelectionRange(si.value.length,si.value.length);}catch(e){} }
+  });
 }
 
 async function saveService(){
   const g=id=>document.getElementById(id).value.trim();
-  const machineId=g('sv-machine'),svcDate=g('sv-date'),type=g('sv-type');
-  if(!machineId||!svcDate||!type){toast('Fill in required fields','error');return;}
-  const m=APP.machines.find(x=>x.id===machineId);
+  const svcDate=g('sv-date'),type=g('sv-type');
+  if(!APP.svcSelIds.length){toast('Select at least one machine.','error');return;}
+  if(!svcDate||!type){toast('Fill in required fields.','error');return;}
+  const btn=document.getElementById('saveSvcBtn');
+  btn.disabled=true;btn.innerHTML='<span class="btn-spin"></span> Saving…';
+  const nextDueDate=g('sv-next')||null;
+  const partsReplaced=g('sv-parts');
+  const notes=g('sv-notes');
   try{
-    await serviceCol.add({
-      machineId,assetNum:m?.assetNum||'',brand:m?.brand||'',model:m?.model||'',
-      serialNum:m?.serialNum||'',factory:m?.factory||'',
-      serviceDate:svcDate,nextDueDate:g('sv-next')||null,
-      serviceType:type,partsReplaced:g('sv-parts'),notes:g('sv-notes'),
-      recordedBy:APP.user.name,
-      timestamp:firebase.firestore.FieldValue.serverTimestamp()
-    });
-    if(type==='Repair'){await machinesCol.doc(machineId).update({status:'Under Repair',updatedAt:firebase.firestore.FieldValue.serverTimestamp()});}
-    toast('Service record saved!','success');closeModal();
-  }catch(e){toast('Save failed: '+e.message,'error');}
+    // Save one record per machine, all with same service details
+    for(let i=0;i<APP.svcSelIds.length;i+=400){
+      const batch=db.batch();
+      APP.svcSelIds.slice(i,i+400).forEach(machineId=>{
+        const m=APP.machines.find(x=>x.id===machineId);
+        if(!m) return;
+        batch.set(serviceCol.doc(),{
+          machineId,assetNum:m.assetNum||'',seqNum:m.seqNum||'',countNum:m.countNum||'',
+          brand:m.brand||'',model:m.model||'',serialNum:m.serialNum||'',factory:m.factory||'',
+          serviceDate:svcDate,nextDueDate,serviceType:type,
+          partsReplaced,notes,
+          batchService:APP.svcSelIds.length>1,batchCount:APP.svcSelIds.length,
+          recordedBy:APP.user.name,
+          timestamp:firebase.firestore.FieldValue.serverTimestamp()
+        });
+        // Mark as under repair if applicable
+        if(type==='Repair') batch.update(machinesCol.doc(machineId),{status:'Under Repair',updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      });
+      await batch.commit();
+    }
+    const cnt=APP.svcSelIds.length;
+    APP.svcSelIds=[];APP.svcSearch='';
+    toast(`Service record${cnt>1?'s':''} saved for ${cnt} machine${cnt>1?'s':''}!`,'success');
+    closeModal();
+  }catch(e){
+    toast('Save failed: '+e.message,'error');
+    btn.disabled=false;
+    btn.innerHTML='<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg> Save Service Record(s)';
+  }
 }
 
 function renderService(){
   const alerts=getAlerts();
   let records=[...APP.serviceRecords];
   if(APP.filterFactory!=='all') records=records.filter(r=>r.factory===APP.filterFactory);
-  if(APP.search){const q=APP.search.toLowerCase();records=records.filter(r=>(r.assetNum||'').toLowerCase().includes(q)||(r.brand||'').toLowerCase().includes(q)||(r.model||'').toLowerCase().includes(q)||(r.serialNum||'').toLowerCase().includes(q)||(r.technician||'').toLowerCase().includes(q));}
+  if(APP.search){
+    const q=APP.search.toLowerCase();
+    records=records.filter(r=>
+      (r.assetNum||'').toLowerCase().includes(q)||
+      (r.seqNum||'').toLowerCase().includes(q)||
+      (r.countNum||'').toLowerCase().includes(q)||
+      (r.serialNum||'').toLowerCase().includes(q)||
+      (r.brand||'').toLowerCase().includes(q)||
+      (r.model||'').toLowerCase().includes(q)
+    );
+  }
   const fOpts=FACTORIES.map(f=>`<option value="${f}"${APP.filterFactory===f?' selected':''}>${f}</option>`).join('');
 
   const getSvcStatus=(nextDue)=>{
@@ -1631,9 +1928,12 @@ function renderService(){
         const sev=a.severity==='overdue'?'overdue':'soon';
         return `<div class="alert-bar ${sev}" style="margin-bottom:8px">
           <div>
-            <h4>${a.machine.brand} ${a.machine.model} — ${a.machine.assetNum} <span class="tag tag-ser" style="font-size:10px">${a.machine.serialNum||''}</span></h4>
+            <h4>${a.machine.brand} ${a.machine.model} — ${a.machine.assetNum}
+              <span class="tag" style="background:#f0fdf4;color:#166534;font-size:10px;margin-left:4px">${a.machine.countNum||''}</span>
+              <span class="tag tag-ser" style="font-size:10px;margin-left:2px">${a.machine.serialNum||''}</span>
+            </h4>
             <p>${a.severity==='overdue'?`Overdue by ${Math.abs(a.diff)} day${Math.abs(a.diff)>1?'s':''}`:
-              `Due in ${a.diff} day${a.diff>1?'s':''}`} · ${a.machine.factory} · Next due: ${fmtDate(a.nextDueDate)}</p>
+              `Due in ${a.diff} day${a.diff>1?'s':''}`} · Seq # ${a.machine.seqNum||'—'} · ${a.machine.factory} · Next due: ${fmtDate(a.nextDueDate)}</p>
           </div>
           ${can('addService')?`<button class="btn btn-sm ${sev==='overdue'?'btn-danger':'btn-warn'}" style="margin-left:auto;flex-shrink:0" onclick="openAddService('${a.machine.id}')">Log Service</button>`:''}
         </div>`;
@@ -1644,6 +1944,8 @@ function renderService(){
     const st=getSvcStatus(r.nextDueDate);
     return `<tr>
       <td><span class="tag">${r.assetNum||'—'}</span></td>
+      <td style="font-family:'Courier New',monospace;font-size:11px;color:#374151;font-weight:700">${r.seqNum||'—'}</td>
+      <td><span class="tag" style="background:#f0fdf4;color:#166534">${r.countNum||'—'}</span></td>
       <td><span class="tag tag-ser">${r.serialNum||'—'}</span></td>
       <td><strong>${r.brand||''}</strong> ${r.model||''}</td>
       <td>${factoryBadge(r.factory)}</td>
@@ -1652,10 +1954,10 @@ function renderService(){
       <td style="color:#64748b;font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.partsReplaced||''}">${r.partsReplaced||'—'}</td>
       <td style="color:#64748b;font-size:12px;white-space:nowrap">${fmtDate(r.nextDueDate)}</td>
       <td>${st.label!=='—'?`<span class="badge ${st.badge}">${st.label}</span>`:st.label}</td>
-      <td style="color:#64748b;font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.notes||''}">${r.notes||'—'}</td>
+      <td style="color:#64748b;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.notes||''}">${r.notes||'—'}${r.batchService?`<span class="badge" style="background:#f0fdf4;color:#14532d;font-size:9px;margin-left:4px">batch ${r.batchCount}</span>`:''}</td>
       <td>${APP.user?.role==='admin'?`<button class="btn btn-danger btn-xs" onclick="deleteSvcRecord('${r.id}')">Del</button>`:'—'}</td>
     </tr>`;}).join('')
-    :`<tr><td colspan="11"><div class="empty"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg><p>No service records found</p></div></td></tr>`;
+    :`<tr><td colspan="13"><div class="empty"><svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg><p>No service records found</p></div></td></tr>`;
 
   return `
     <div class="ph">
@@ -1670,15 +1972,26 @@ function renderService(){
     ${alertBanners}
     <div class="tc">
       <div class="tc-toolbar">
-        <div class="search-wrap" style="position:relative">
+        <div class="search-wrap">
           <svg class="s-icon" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#9ca3af" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input class="si" id="searchInput" type="text" placeholder="Search records…" value="${APP.search}" oninput="APP.search=this.value;render()"/>
+          <input class="si" id="searchInput" type="text"
+            placeholder="Seq #, Serial #, Count #, Asset #, Model…"
+            value="${APP.search}"
+            oninput="APP.search=this.value;render()"/>
         </div>
         <select class="sf" onchange="APP.filterFactory=this.value;render()"><option value="all">All Factories</option>${fOpts}</select>
         <span style="font-size:12px;color:#94a3b8;margin-left:auto">${records.length} records</span>
       </div>
       <div class="tw"><table>
-        <thead><tr><th>Asset #</th><th>Serial #</th><th>Machine</th><th>Factory</th><th>Service Date</th><th>Type</th><th>Work Done / Parts</th><th>Next Due</th><th>Status</th><th>Notes</th><th>Action</th></tr></thead>
+        <thead><tr>
+          <th>Asset #</th>
+          <th style="color:#185FA5">Seq #</th>
+          <th>Count #</th>
+          <th style="color:#185FA5">Serial #</th>
+          <th style="color:#185FA5">Machine</th>
+          <th>Factory</th><th>Service Date</th><th>Type</th>
+          <th>Work Done / Parts</th><th>Next Due</th><th>Status</th><th>Notes</th><th>Action</th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>`;
@@ -1796,7 +2109,7 @@ function exportTransfersExcel(){
 }
 
 function exportServiceExcel(){
-  const data=APP.serviceRecords.map(r=>({'Asset #':r.assetNum,'Serial #':r.serialNum,'Brand':r.brand,'Model':r.model,'Factory':r.factory,'Service Date':fmtDate(r.serviceDate),'Service Type':r.serviceType,'Technician':r.technician||'','Next Due Date':fmtDate(r.nextDueDate),'Parts Replaced':r.partsReplaced||'','Cost (LKR)':r.cost||0,'Notes':r.notes||'','Recorded By':r.recordedBy}));
+  const data=APP.serviceRecords.map(r=>({'Asset #':r.assetNum,'Seq #':r.seqNum||'','Count #':r.countNum||'','Serial #':r.serialNum,'Brand':r.brand,'Model':r.model,'Factory':r.factory,'Service Date':fmtDate(r.serviceDate),'Service Type':r.serviceType,'Next Due Date':fmtDate(r.nextDueDate),'Parts / Work Done':r.partsReplaced||'','Notes':r.notes||'','Recorded By':r.recordedBy}));
   dlExcel([{name:'Service Records',data}],'service_records_export.xlsx');
 }
 
@@ -1896,7 +2209,7 @@ function autoNextDue(){
 function setupPWA(){
   // Inline manifest via blob URL
   const manifest={
-    name:'SMT Inventory ',
+    name:'SMT Inventory — Garment Factory',
     short_name:'SMT Inventory',
     description:'Sewing Machine Inventory Management System',
     start_url:window.location.href,
@@ -1933,7 +2246,7 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
     showInstallBanner();
   });
   window.addEventListener('appinstalled',()=>{
-    hideInstallBanner();toast('SMT Inventory installed as desktop app!','success');
+    hideInstallBanner();toast('Installed as desktop app!','success');
   });
 }
 
@@ -1971,7 +2284,7 @@ function showInstallBanner(){
   b.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#042C53;color:white;padding:12px 20px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.35);display:flex;align-items:center;gap:12px;z-index:8000;font-size:13px;font-weight:600;max-width:400px;width:90%';
   b.innerHTML=`
     <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="#378ADD" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
-    <span style="flex:1">Install SMT Inventory as a desktop app</span>
+    <span style="flex:1">Install SM Inventory as a desktop app</span>
     <button onclick="installPWA()" style="background:#185FA5;border:none;color:white;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">Install</button>
     <button onclick="hideInstallBanner()" style="background:rgba(255,255,255,.1);border:none;color:rgba(255,255,255,.6);padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12px">Later</button>`;
   document.body.appendChild(b);
@@ -1988,6 +2301,16 @@ window.addEventListener('beforeinstallprompt',e=>{window._deferredPrompt=e;});
 /* ════════════════════════════════════════════
    BOOT
 ════════════════════════════════════════════ */
+function applyUserUI(userData){
+  document.getElementById('uAvatar').textContent=userData.name[0].toUpperCase();
+  document.getElementById('uName').textContent=userData.name;
+  document.getElementById('uRole').textContent=userData.role;
+  if(userData.role==='admin') document.getElementById('nav-users').classList.remove('hidden');
+  if(!can('addMachine')){
+    ['nav-add','nav-bulk','nav-transfer'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  }
+}
+
 window.addEventListener('load',async()=>{
   restoreSbState();
   setupPWA();
@@ -1998,10 +2321,14 @@ window.addEventListener('load',async()=>{
   }
   try{
     await seedUsersIfEmpty();
-    // Show default login hints from seeded users
     document.getElementById('authHint').innerHTML='<strong>admin</strong> / admin123 &nbsp;·&nbsp; <strong>operator</strong> / op123';
     setDbStatus(true);
   }catch(e){setDbStatus(false);}
+
+  // Always show login first on app load
+  // (prevents auto-opening the dashboard from a previously saved session)
+  localStorage.removeItem('smSession');
+  document.getElementById('app').classList.remove('vis');
   document.getElementById('loadOverlay').classList.add('gone');
   document.getElementById('authScreen').classList.add('vis');
 });
