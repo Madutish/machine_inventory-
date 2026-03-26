@@ -4000,6 +4000,9 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
     window.addEventListener('load', async () => {
       restoreSbState();
       setupPWA();
+      // Always start on the login screen
+      sessionStorage.removeItem('smSession');
+      localStorage.removeItem('smSession');
       if (!dbOnline) {
         document.getElementById('loadOverlay').classList.add('gone');
         document.getElementById('authScreen').classList.add('vis');
@@ -4011,22 +4014,6 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
         setDbStatus(true);
       } catch (e) { setDbStatus(false); }
 
-      // Try to restore saved session on page refresh (only for the current tab)
-      const saved = sessionStorage.getItem('smSession') || localStorage.getItem('smSession'); // Fallback during transition
-      if (saved) {
-        try {
-          const userData = JSON.parse(saved);
-          APP.user = userData;
-          document.getElementById('app').classList.add('vis');
-          applyUserUI(userData);
-          document.getElementById('loadMsg').textContent = 'Restoring session…';
-          startListeners();
-          setTimeout(() => { document.getElementById('loadOverlay').classList.add('gone'); nav('dashboard'); }, 1200);
-          return;
-        } catch (e) { sessionStorage.removeItem('smSession'); localStorage.removeItem('smSession'); }
-      }
-
-      // No saved session — show login
       document.getElementById('app').classList.remove('vis');
       document.getElementById('loadOverlay').classList.add('gone');
       document.getElementById('authScreen').classList.add('vis');
