@@ -486,8 +486,8 @@ function resolveFactory(val){
   const up=v.toUpperCase();
   return FTY_MAP[up]||FTY_MAP[v]||v;
 }
-const STATUS_OPTS=['Active','Under Repair','Retired'];
-const STATUS_BADGE={'Active':'s-active','Under Repair':'s-repair','Retired':'s-retired'};
+const STATUS_OPTS=['Active','Under Repair','Idle','To be Dispose'];
+const STATUS_BADGE={'Active':'s-active','Under Repair':'s-repair','Idle':'s-idle', 'To be Dispose':'s-dispose'};
 const SVC_TYPES=['Routine Maintenance','Repair','Major Overhaul','Inspection','Parts Replacement'];
 const ROLES=['admin','operator','viewer'];
 const ROLE_PERMS={
@@ -580,7 +580,7 @@ function getAlerts(){
     const due=toDateVal(sr.nextDueDate);if(!due) return;
     due.setHours(0,0,0,0);
     const machine=APP.machines.find(m=>m.id===sr.machineId);
-    if(!machine||machine.status==='Retired') return;
+    if(!machine||machine.status==='Idle') return;
     const diff=Math.floor((due-today)/(1000*60*60*24));
     if(diff<0) alerts.push({...sr,machine,severity:'overdue',diff});
     else if(diff<=30) alerts.push({...sr,machine,severity:'soon',diff});
@@ -1210,8 +1210,9 @@ function downloadTemplate(){
     'AssetNum,SeqNum,CountNum,Brand,Model,SerialNum,Description,Factory,Status',
     'AST-F1-025,18775,CNT-025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active',
     'AST-F3-010,18776,CNT-010,Brother,S-1000A,BR-S1000-110,High Speed Lockstitch,FTY 03,Active',
-   
-    
+    'AST-TRD-001,18777,CNT-300,Siruba,C007J,SRB-C007-200,Chainstitch Machine,TRD,Active',
+    'AST-SL-001,18778,CNT-400,JUKI,MO-6716S,JK-MO67-050,Overlock Machine,Shikhar Lanka,Active',
+    '--- TIP: Factory can be full name (Factory 1) or short code (FTY 01 FTY 03 FTY 06 etc.) ---'
   ].join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
