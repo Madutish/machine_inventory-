@@ -133,6 +133,9 @@ tbody tr:hover td{background:#fafcff}
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:800;white-space:nowrap}
 .bf1{background:#dbeafe;color:#1e40af}.bf3{background:#dcfce7;color:#14532d}
 .bf4{background:#fef9c3;color:#713f12}.bf5{background:#fce7f3;color:#831843}
+.bf6{background:#fef3c7;color:#92400e}.bf7{background:#e0e7ff;color:#3730a3}
+.bf8{background:#d1fae5;color:#065f46}.bftrd{background:#fee2e2;color:#991b1b}
+.bfsl{background:#ede9fe;color:#4c1d95}
 /* STATUS */
 .s-active{background:#dcfce7;color:#14532d}
 .s-repair{background:#fef9c3;color:#713f12}
@@ -459,8 +462,30 @@ try {
 /* ════════════════════════════════════════════
    CONSTANTS
 ════════════════════════════════════════════ */
-const FACTORIES=['Factory 1','Factory 3','Factory 4','Factory 5'];
-const FBADGE={'Factory 1':'bf1','Factory 3':'bf3','Factory 4':'bf4','Factory 5':'bf5'};
+const FACTORIES=['Factory 1','Factory 3','Factory 4','Factory 5','Factory 6','Factory 7','Factory 8','TRD','Shikhar Lanka'];
+const FBADGE={'Factory 1':'bf1','Factory 3':'bf3','Factory 4':'bf4','Factory 5':'bf5',
+  'Factory 6':'bf6','Factory 7':'bf7','Factory 8':'bf8','TRD':'bftrd','Shikhar Lanka':'bfsl'};
+
+// FTY short-code → full factory name (for bulk import convenience)
+const FTY_MAP={
+  'FTY01':'Factory 1','FTY 01':'Factory 1','FTY1':'Factory 1',
+  'FTY03':'Factory 3','FTY 03':'Factory 3','FTY3':'Factory 3',
+  'FTY04':'Factory 4','FTY 04':'Factory 4','FTY4':'Factory 4',
+  'FTY05':'Factory 5','FTY 05':'Factory 5','FTY5':'Factory 5',
+  'FTY06':'Factory 6','FTY 06':'Factory 6','FTY6':'Factory 6',
+  'FTY07':'Factory 7','FTY 07':'Factory 7','FTY7':'Factory 7',
+  'FTY08':'Factory 8','FTY 08':'Factory 8','FTY8':'Factory 8',
+  'TRD':'TRD','SHIKHAR LANKA':'Shikhar Lanka','SHIKHARLANKA':'Shikhar Lanka','SL':'Shikhar Lanka'
+};
+function resolveFactory(val){
+  if(!val) return '';
+  const v=String(val).trim();
+  // Already a valid full name
+  if(FACTORIES.includes(v)) return v;
+  // Try FTY map (case-insensitive)
+  const up=v.toUpperCase();
+  return FTY_MAP[up]||FTY_MAP[v]||v;
+}
 const STATUS_OPTS=['Active','Under Repair','Retired'];
 const STATUS_BADGE={'Active':'s-active','Under Repair':'s-repair','Retired':'s-retired'};
 const SVC_TYPES=['Routine Maintenance','Repair','Major Overhaul','Inspection','Parts Replacement'];
@@ -1138,13 +1163,15 @@ function renderBulk(){
       ${APP.bulkRows.length} rows — ${validCount} valid, ${APP.bulkRows.length-validCount} errors
     </div>
     <div class="tc"><div class="tw"><table>
-      <thead><tr><th>Asset #</th><th>Seq #</th><th>Brand</th><th>Model</th><th>Serial #</th><th>Description</th><th>Factory</th><th>Status</th></tr></thead>
+      <thead><tr><th>Asset #</th><th>Seq #</th><th>Count #</th><th>Brand</th><th>Model</th><th>Serial #</th><th>Description</th><th>Factory (resolved)</th><th>Status</th></tr></thead>
       <tbody>${APP.bulkRows.map(r=>`<tr>
-        <td><span class="tag">${r.AssetNum||'—'}</span></td><td>${r.SeqNum||'—'}</td>
+        <td><span class="tag">${r.AssetNum||'—'}</span></td>
+        <td style="font-family:'Courier New',monospace;font-weight:700;color:#185FA5">${r.SeqNum||'<span style="color:#dc2626">Missing!</span>'}</td>
+        <td><span class="tag" style="background:#f0fdf4;color:#166534">${r.CountNum||'—'}</span></td>
         <td>${r.Brand||'—'}</td><td>${r.Model||'—'}</td>
         <td><span class="tag tag-ser">${r.SerialNum||'—'}</span></td>
-        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.Description||'—'}</td>
-        <td>${FACTORIES.includes(r.Factory)?factoryBadge(r.Factory):'<span style="color:#dc2626;font-size:12px">Invalid</span>'}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.Description||'—'}</td>
+        <td>${FACTORIES.includes(r.Factory)?factoryBadge(r.Factory):'<span style="color:#dc2626;font-size:12px;font-weight:700">Invalid: '+r.Factory+'</span>'}</td>
         <td>${isValidRow(r)?'<span class="badge s-active">Valid</span>':'<span class="badge sev-overdue">Error</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div></div>
@@ -1168,18 +1195,30 @@ function renderBulk(){
         <div class="uz-sub">Accepts .xlsx · .xls · .csv</div>
       </div>
       <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0])"/>
-      <p style="font-size:12px;color:#94a3b8;margin-top:10px;line-height:1.8">
-        <strong style="color:#374151">Required:</strong> AssetNum, Brand, Model, SerialNum, Factory &nbsp;·&nbsp;
-        <strong style="color:#374151">Optional:</strong> Description, Status, CountNum &nbsp;·&nbsp;
-        <strong style="color:#185FA5;font-weight:700">Seq # is auto-assigned</strong> — no need to include it in the file &nbsp;·&nbsp;
-        <strong style="color:#374151">Factories:</strong> Factory 1 · Factory 3 · Factory 4 · Factory 5
+      <p style="font-size:12px;color:#94a3b8;margin-top:10px;line-height:1.9">
+        <strong style="color:#374151">Required columns:</strong> AssetNum, SeqNum, Brand, Model, SerialNum, Factory &nbsp;·&nbsp;
+        <strong style="color:#374151">Optional:</strong> CountNum, Description, Status &nbsp;·&nbsp;
+        <strong style="color:#185FA5;font-weight:700">SeqNum must be filled manually in the file</strong> — no auto-assign for bulk &nbsp;·&nbsp;
+        <strong style="color:#374151">Factory short codes accepted:</strong>
+        FTY 01 · FTY 03 · FTY 04 · FTY 05 · FTY 06 · FTY 07 · FTY 08 · TRD · Shikhar Lanka
       </p>${pre}
     </div>`;
 }
 const isValidRow=r=>!!(r.AssetNum&&r.Brand&&r.Model&&r.SerialNum&&FACTORIES.includes(r.Factory));
 function downloadTemplate(){
-  const csv='AssetNum,CountNum,Brand,Model,SerialNum,Description,Factory,Status\nAST-F1-025,CNT-025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active\nAST-F3-010,CNT-010,Brother,S-1000A,BR-S1000-110,High Speed Lockstitch Machine,Factory 3,Active\n';
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='machine_template.csv';a.click();
+  const csv=[
+    'AssetNum,SeqNum,CountNum,Brand,Model,SerialNum,Description,Factory,Status',
+    'AST-F1-025,18775,CNT-025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active',
+    'AST-F3-010,18776,CNT-010,Brother,S-1000A,BR-S1000-110,High Speed Lockstitch,FTY 03,Active',
+    'AST-TRD-001,18777,CNT-300,Siruba,C007J,SRB-C007-200,Chainstitch Machine,TRD,Active',
+    'AST-SL-001,18778,CNT-400,JUKI,MO-6716S,JK-MO67-050,Overlock Machine,Shikhar Lanka,Active',
+    '--- TIP: Factory can be full name (Factory 1) or short code (FTY 01 FTY 03 FTY 06 etc.) ---'
+  ].join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='machine_import_template.csv';
+  a.click();
+  toast('Template downloaded — SeqNum column is manual for bulk import','info');
 }
 function handleDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('drag');if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);}
 function handleFile(file){
@@ -1194,13 +1233,13 @@ function handleFile(file){
       const data=XLSX.utils.sheet_to_json(ws,{defval:''});
       APP.bulkRows=data.map(r=>({
         AssetNum:String(r.AssetNum||r['Asset Number']||r['Asset #']||r.assetNum||'').trim(),
-        SeqNum:'',// auto-assigned — ignored from file
+        SeqNum:String(r.SeqNum||r['Seq Number']||r['Seq #']||r.seqNum||r.SeqNo||r['Seq No']||'').trim(),
         CountNum:String(r.CountNum||r['Count Number']||r['Count #']||r.countNum||'').trim(),
         Brand:String(r.Brand||r['Brand / Make']||r.brand||'').trim(),
         Model:String(r.Model||r.model||'').trim(),
         SerialNum:String(r.SerialNum||r['Serial Number']||r['Serial #']||r.serialNum||'').trim(),
         Description:String(r.Description||r.description||'').trim(),
-        Factory:String(r.Factory||r.factory||'').trim(),
+        Factory:resolveFactory(r.Factory||r.factory||''),
         Status:String(r.Status||r.status||'Active').trim()
       }));
       render();toast(`Parsed ${APP.bulkRows.length} rows`,'info');
@@ -1212,22 +1251,23 @@ async function importBulk(){
   const btn=document.getElementById('importBtn');btn.disabled=true;btn.innerHTML='<span class="btn-spin" style="border-top-color:#14532d"></span> Importing…';
   const existing=new Set(APP.machines.map(m=>m.assetNum));
   let added=0,skipped=0;
-  // Auto seq: start from next available number
-  let nextSeq=getNextSeqNum();
   for(let i=0;i<valid.length;i+=400){
     const batch=db.batch();
     valid.slice(i,i+400).forEach(r=>{
       if(existing.has(r.AssetNum)){skipped++;return;}
-      batch.set(machinesCol.doc(),{assetNum:r.AssetNum,seqNum:String(nextSeq),countNum:r.CountNum||'',brand:r.Brand,model:r.Model,
-        serialNum:r.SerialNum,description:r.Description,factory:r.Factory,
+      batch.set(machinesCol.doc(),{
+        assetNum:r.AssetNum, seqNum:r.SeqNum||'', countNum:r.CountNum||'',
+        brand:r.Brand, model:r.Model, serialNum:r.SerialNum,
+        description:r.Description, factory:r.Factory,
         status:STATUS_OPTS.includes(r.Status)?r.Status:'Active',
-        addedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      nextSeq++;added++;
+        addedAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+      added++;
     });
     try{await batch.commit();}catch(e){toast('Import failed: '+e.message,'error');return;}
   }
   APP.bulkRows=[];
-  toast(`Imported ${added} machines. Seq # ${getNextSeqNum()-added}–${getNextSeqNum()-1} assigned.${skipped?' '+skipped+' skipped.':''}`, 'success');
+  toast(`Imported ${added} machine${added!==1?'s':''}.${skipped?' '+skipped+' skipped (duplicates).':''}`, 'success');
   nav('machines');
 }
 
