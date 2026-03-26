@@ -1210,9 +1210,8 @@ function downloadTemplate(){
     'AssetNum,SeqNum,CountNum,Brand,Model,SerialNum,Description,Factory,Status',
     'AST-F1-025,18775,CNT-025,JUKI,DDL-8700,JK8700-00125,Single Needle Lockstitch Machine,Factory 1,Active',
     'AST-F3-010,18776,CNT-010,Brother,S-1000A,BR-S1000-110,High Speed Lockstitch,FTY 03,Active',
-    'AST-TRD-001,18777,CNT-300,Siruba,C007J,SRB-C007-200,Chainstitch Machine,TRD,Active',
-    'AST-SL-001,18778,CNT-400,JUKI,MO-6716S,JK-MO67-050,Overlock Machine,Shikhar Lanka,Active',
-    '--- TIP: Factory can be full name (Factory 1) or short code (FTY 01 FTY 03 FTY 06 etc.) ---'
+   
+    
   ].join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
