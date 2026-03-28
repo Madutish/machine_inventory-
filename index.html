@@ -344,8 +344,7 @@
     .sidebar.collapsed .nav-badge,
     .sidebar.collapsed .db-pill,
     .sidebar.collapsed .u-name,
-    .sidebar.collapsed .u-role,
-    .sidebar.collapsed .logout-btn {
+    .sidebar.collapsed .u-role {
       display: none
     }
 
@@ -359,12 +358,36 @@
     }
 
     .sidebar.collapsed .user-row {
+      flex-direction: column;
       justify-content: center;
+      align-items: center;
+      gap: 6px;
       padding: 8px 0
     }
 
     .sidebar.collapsed .sb-footer {
       padding: 10px 4px
+    }
+
+    .sidebar.collapsed .logout-btn {
+      margin-left: 0;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      padding: 0;
+      border-radius: 8px;
+      font-size: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center
+    }
+
+    .sidebar.collapsed .logout-btn::before {
+      content: '↪';
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1;
+      color: rgba(255, 255, 255, .82)
     }
 
     .sidebar.collapsed .sb-nav {
@@ -456,7 +479,14 @@
       position: relative
     }
 
-    .sidebar.collapsed .nav-item:hover::after {
+    .sidebar.collapsed,
+    .sidebar.collapsed .sb-nav,
+    .sidebar.collapsed .sb-footer {
+      overflow-x: hidden
+    }
+
+    .sidebar.collapsed .nav-item:hover::after,
+    .sidebar.collapsed .nav-item:focus-visible::after {
       content: attr(data-label);
       position: absolute;
       left: 52px;
@@ -465,12 +495,13 @@
       background: #1e293b;
       color: white;
       font-size: 12px;
-      font-weight: 600;
-      padding: 5px 10px;
+      font-weight: 700;
+      padding: 6px 10px;
       border-radius: 7px;
       white-space: nowrap;
       pointer-events: none;
-      z-index: 999
+      z-index: 999;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, .28)
     }
 
     .sb-footer {
@@ -522,7 +553,14 @@
       display: flex;
       align-items: center;
       gap: 9px;
-      padding: 7px 11px
+      padding: 7px 11px;
+      min-width: 0
+    }
+
+    .u-meta {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden
     }
 
     .u-avatar {
@@ -546,14 +584,17 @@
       font-weight: 700;
       line-height: 1.2;
       white-space: nowrap;
-      overflow: hidden
+      overflow: hidden;
+      text-overflow: ellipsis
     }
 
     .u-role {
       font-size: 10px;
       color: rgba(255, 255, 255, .38);
       text-transform: capitalize;
-      white-space: nowrap
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
     }
 
     .logout-btn {
@@ -567,7 +608,9 @@
       font-size: 11px;
       font-weight: 700;
       transition: all .15s;
-      white-space: nowrap
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 64px
     }
 
     .logout-btn:hover {
@@ -1779,7 +1822,8 @@
       </div>
       <div class="auth-field">
         <label>Username</label>
-        <input type="text" id="loginUser" placeholder="Enter your username" autocomplete="username" />
+        <input type="text" id="loginUser" placeholder="Enter your username" autocomplete="username" list="loginUserList" onfocus="showLoginUserSuggestions()" oninput="showLoginUserSuggestions()" />
+        <datalist id="loginUserList"></datalist>
       </div>
       <div class="auth-field">
         <label>Password</label>
@@ -1823,7 +1867,7 @@
         </div>
         <nav class="sb-nav">
           <div class="sb-sec">Overview</div>
-          <div class="nav-item" id="nav-dashboard" data-label="Dashboard" onclick="nav('dashboard')">
+          <div class="nav-item" id="nav-dashboard" data-label="Dashboard" title="Dashboard" onclick="nav('dashboard')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="7" height="7" rx="1.5" />
               <rect x="14" y="3" width="7" height="7" rx="1.5" />
@@ -1833,7 +1877,7 @@
             <span class="nav-label">Dashboard</span>
             <span class="nav-badge hidden" id="nb-dashboard"></span>
           </div>
-          <div class="nav-item" id="nav-machines" data-label="All Machines" onclick="nav('machines')">
+          <div class="nav-item" id="nav-machines" data-label="All Machines" title="All Machines" onclick="nav('machines')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path
                 d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
@@ -1841,33 +1885,33 @@
             <span class="nav-label">All Machines</span>
           </div>
           <div class="sb-sec">Management</div>
-          <div class="nav-item" id="nav-add" data-label="Add Machine" onclick="nav('add')">
+          <div class="nav-item" id="nav-add" data-label="Add Machine" title="Add Machine" onclick="nav('add')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="9" />
               <path d="M12 8v8M8 12h8" />
             </svg>
             <span class="nav-label">Add Machine</span>
           </div>
-          <div class="nav-item" id="nav-bulk" data-label="Bulk Upload" onclick="nav('bulk')">
+          <div class="nav-item" id="nav-bulk" data-label="Bulk Upload" title="Bulk Upload" onclick="nav('bulk')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M16 12l-4-4-4 4M12 8v9" />
             </svg>
             <span class="nav-label">Bulk Upload</span>
           </div>
-          <div class="nav-item" id="nav-transfer" data-label="Transfer Machine" onclick="nav('transfer')">
+          <div class="nav-item" id="nav-transfer" data-label="Transfer Machine" title="Transfer Machine" onclick="nav('transfer')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4-4m-4 4l4 4" />
             </svg>
             <span class="nav-label">Transfer Machine</span>
           </div>
-          <div class="nav-item" id="nav-tlogs" data-label="Transfer Logs" onclick="nav('tlogs')">
+          <div class="nav-item" id="nav-tlogs" data-label="Transfer Logs" title="Transfer Logs" onclick="nav('tlogs')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
             <span class="nav-label">Transfer Logs</span>
           </div>
-          <div class="nav-item" id="nav-service" data-label="Service Records" onclick="nav('service')">
+          <div class="nav-item" id="nav-service" data-label="Service Records" title="Service Records" onclick="nav('service')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path
                 d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -1890,12 +1934,12 @@
             <div class="db-dot"></div><span id="dbPillLabel">Firebase Connected</span>
           </div>
           <div class="user-row">
-            <div class="u-avatar" id="uAvatar">A</div>
-            <div>
+            <div class="u-avatar" id="uAvatar" title="Account">A</div>
+            <div class="u-meta">
               <div class="u-name" id="uName">Admin</div>
               <div class="u-role" id="uRole">Administrator</div>
             </div>
-            <button class="logout-btn" onclick="doLogout()">Sign out</button>
+            <button class="logout-btn" onclick="doLogout()" title="Sign out">Sign out</button>
           </div>
         </div>
       </aside>
@@ -2009,8 +2053,8 @@
     const ROLES = ['admin', 'operator', 'viewer'];
     const ROLE_PERMS = {
       admin: ['all'],
-      operator: ['transfer', 'addService'],
-      viewer: []
+      operator: ['addMachine', 'editMachine', 'bulkUpload', 'transfer', 'addService', 'exportData'],
+      viewer: ['exportData']
     };
     const DEFAULT_USERS = [
       { username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', active: true },
@@ -2066,17 +2110,28 @@
       return ROLE_PERMS[role]?.includes(action) || false;
     }
 
-    function renderAdminAccessRequired(title = 'Admin access required', note = 'Only admin users can use this section.') {
-      return `
-    <div style="min-height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center;padding:24px">
-      <div style="text-align:center;max-width:420px">
-        <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:#dbeafe;margin-bottom:16px">
-          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#185FA5" stroke-width="2"><path d="M12 15v2m-6 0h12a2 2 0 002-2V9a2 2 0 00-2-2h-1V6a5 5 0 00-10 0v1H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
-        </div>
-        <h2 style="font-size:28px;font-weight:800;color:#042C53;margin-bottom:10px">${title}</h2>
-        <p style="font-size:14px;color:#64748b;line-height:1.7">${note}</p>
-      </div>
-    </div>`;
+    function getLoginSuggestionUsers() {
+      return (APP.users || [])
+        .filter(u => u && u.active !== false && (u.role || '').toLowerCase() !== 'admin')
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    }
+
+    function showLoginUserSuggestions() {
+      const list = document.getElementById('loginUserList');
+      const input = document.getElementById('loginUser');
+      const hint = document.getElementById('authHint');
+      if (!list || !input || !hint) return;
+      const q = (input.value || '').trim().toLowerCase();
+      const users = getLoginSuggestionUsers();
+      const filtered = q
+        ? users.filter(u => (u.username || '').toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q))
+        : users;
+      list.innerHTML = filtered.slice(0, 20).map(u => `<option value="${u.username}">${u.name}</option>`).join('');
+      if (filtered.length) {
+        hint.innerHTML = 'Users: ' + filtered.slice(0, 5).map(u => `<strong>${u.username}</strong> <span style="color:#94a3b8">(${u.name})</span>`).join(' &nbsp;·&nbsp; ');
+      } else if (users.length) {
+        hint.innerHTML = 'Users: ' + users.slice(0, 5).map(u => `<strong>${u.username}</strong> <span style="color:#94a3b8">(${u.name})</span>`).join(' &nbsp;·&nbsp; ');
+      }
     }
 
     function toast(msg, type = 'info') {
@@ -2254,6 +2309,7 @@
       btn.disabled = false;
       btn.innerHTML = '<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg> Sign In';
       document.getElementById('authScreen').classList.add('vis');
+      setTimeout(showLoginUserSuggestions, 50);
     }
 
     /* ════════════════════════════════════════════
@@ -2380,10 +2436,10 @@
     <div class="ph">
       <div class="ph-left"><h2>Dashboard</h2><p>Live inventory — ${APP.machines.length} machines · ${APP.transfers.length} transfers · ${APP.serviceRecords.length} service records</p></div>
       <div style="display:flex;gap:8px">
-        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
+        <button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export All
-        </button>` : ''}
+        </button>
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
       </div>
@@ -2448,9 +2504,9 @@
       <td>${statusBadge(m.status || 'Active')}</td>
 
       <td style="white-space:nowrap">
-        ${can('editMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
-        ${can('transfer') ? `<button class="btn btn-secondary btn-xs" onclick="quickTransfer('${m.id}')" style="margin-left:3px">Transfer</button>` : ''}
-        ${can('addService') ? `<button class="btn btn-secondary btn-xs" onclick="openAddService('${m.id}')" style="margin-left:3px">Service</button>` : ''}
+        ${can('addMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
+        <button class="btn btn-secondary btn-xs" onclick="quickTransfer('${m.id}')" style="margin-left:3px">Transfer</button>
+        <button class="btn btn-secondary btn-xs" onclick="openAddService('${m.id}')" style="margin-left:3px">Service</button>
         ${APP.user?.role === 'admin' ? `<button class="btn btn-danger btn-xs" onclick="deleteMachine('${m.id}','${(m.assetNum || '').replace(/'/g, '&#39;')}')" style="margin-left:3px">Delete</button>` : ''}
       </td>
     </tr>`).join('')
@@ -2474,8 +2530,8 @@
     <div class="ph">
       <div class="ph-left"><h2>All Machines</h2><p>${APP.machines.length} machines across ${FACTORIES.length} factories</p></div>
       <div style="display:flex;gap:8px">
-        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>` : ''}
+        <button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
         ${can('bulkUpload') ? `<button class="btn btn-secondary btn-sm" onclick="nav('bulk')">Bulk Upload</button>` : ''}
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
@@ -2520,7 +2576,6 @@
     }
 
     function renderAdd() {
-      if (!can('addMachine')) return renderAdminAccessRequired('Admin access required', 'Only admin users can add new machines.');
       const fOpts = FACTORIES.map(f => `<option value="${f}">${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}">${s}</option>`).join('');
       const nextSeq = getQueuedNextSeqNum();
@@ -2627,7 +2682,6 @@
     }
 
     function addMachineToList() {
-      if (!can('addMachine')) { toast('Access denied for this account.', 'error'); return; }
       const g = id => document.getElementById(id).value.trim();
       const asset = g('fAsset'), seq = g('fSeq'), countNum = g('fCount'), brand = g('fBrand'), model = g('fModel'), serial = g('fSerial'), factory = g('fFactory'), desc = g('fDesc'), status = g('fStatus') || 'Active';
       if (!asset || !countNum || !brand || !model || !serial || !factory) { toast('Fill in all required fields.', 'error'); return; }
@@ -2669,7 +2723,6 @@
     async function saveMachine() { return saveQueuedMachines(); }
 
     async function saveQueuedMachines() {
-      if (!can('addMachine')) { toast('Access denied for this account.', 'error'); return; }
       if (!APP.addQueue.length) { toast('Add at least one machine to the list.', 'error'); return; }
       const btn = document.getElementById('saveMachineBtn');
       if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spin" style="border-top-color:#14532d"></span> Saving…'; }
@@ -2699,7 +2752,6 @@
     }
 
     function openEditMachine(id) {
-      if (!can('editMachine')) { openModal('Edit Machine', renderAdminAccessRequired('Admin access required', 'Only admin users can edit machine details.'), '<button class="btn btn-secondary" onclick="closeModal()">Close</button>', false, true); return; }
       const m = APP.machines.find(x => x.id === id); if (!m) return;
       const fOpts = FACTORIES.map(f => `<option value="${f}"${m.factory === f ? ' selected' : ''}>${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}"${(m.status || 'Active') === s ? ' selected' : ''}>${s}</option>`).join('');
@@ -2721,7 +2773,6 @@
     }
 
     async function saveEditMachine(id) {
-      if (!can('editMachine')) { toast('Admin access required.', 'error'); return; }
       const g = k => document.getElementById('em-' + k).value.trim();
       try {
         await machinesCol.doc(id).update({
@@ -2743,7 +2794,6 @@
        BULK UPLOAD
     ════════════════════════════════════════════ */
     function renderBulk() {
-      if (!can('bulkUpload')) return renderAdminAccessRequired('Admin access required', 'Only admin users can use bulk upload.');
       const validCount = APP.bulkRows.filter(isValidRow).length;
       const pre = APP.bulkRows.length ? `
     <div class="${validCount > 0 ? 'ok-bar' : 'err-bar'}">
@@ -2835,7 +2885,6 @@
       }; reader.readAsBinaryString(file);
     }
     async function importBulk() {
-      if (!can('bulkUpload')) { toast('Access denied for this account.', 'error'); return; }
       const valid = APP.bulkRows.filter(isValidRow); if (!valid.length) return;
       const btn = document.getElementById('importBtn'); btn.disabled = true; btn.innerHTML = '<span class="btn-spin" style="border-top-color:#14532d"></span> Importing…';
       const existing = new Set(APP.machines.map(m => m.assetNum));
@@ -2864,7 +2913,6 @@
        TRANSFER
     ════════════════════════════════════════════ */
     function quickTransfer(id) {
-      if (!can('transfer')) { toast('Access denied for this account.', 'error'); return; }
       APP.selMachineIds = [id]; APP.selMachineId = id; APP.transferTo = ''; nav('transfer');
     }
     function toggleMachineSel(id) {
@@ -2889,7 +2937,6 @@
     }
 
     function renderTransfer() {
-      if (!can('transfer')) return `<div class="empty" style="margin-top:80px"><p>Access denied</p></div>`;
       let list = [...APP.machines];
       if (APP.search) {
         const q = APP.search.toLowerCase();
@@ -3061,7 +3108,6 @@
     }
 
     async function doTransfer() {
-      if (!can('transfer')) { toast('Access denied for this account.', 'error'); return; }
       const selMachines = APP.selMachineIds.map(id => APP.machines.find(m => m.id === id)).filter(Boolean);
       if (!selMachines.length || !APP.transferTo) return;
       const factories = [...new Set(selMachines.map(m => m.factory))];
@@ -3232,10 +3278,10 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" onclick="openAuditTrail()">Audit Trail</button>
-        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportTransfersExcel()">
+        <button class="btn btn-secondary btn-sm" onclick="exportTransfersExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export Excel
-        </button>` : ''}
+        </button>
       </div>
     </div>
     <div class="tc">
@@ -3374,7 +3420,6 @@
        SERVICE RECORDS
     ════════════════════════════════════════════ */
     function openAddService(machineId) {
-      if (!can('addService')) { toast('Access denied for this account.', 'error'); return; }
       // Pre-select machine if called from a specific machine row
       APP.svcSelIds = machineId ? [machineId] : [];
       APP.svcSearch = '';
@@ -3537,7 +3582,6 @@
     }
 
     async function saveService() {
-      if (!can('addService')) { toast('Access denied for this account.', 'error'); return; }
       const g = id => document.getElementById(id).value.trim();
       const svcDate = g('sv-date'), type = g('sv-type');
       if (!APP.svcSelIds.length) { toast('Select at least one machine.', 'error'); return; }
@@ -3658,8 +3702,8 @@
     <div class="ph">
       <div class="ph-left"><h2>Service Records</h2><p>${APP.serviceRecords.length} records · ${alerts.filter(a => a.severity === 'overdue').length} overdue</p></div>
       <div style="display:flex;gap:8px">
-        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportServiceExcel()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>` : ''}
+        <button class="btn btn-secondary btn-sm" onclick="exportServiceExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
         ${can('addService') ? `<button class="btn btn-primary btn-sm" onclick="openAddService('')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Service Record</button>`: ''}
       </div>
@@ -3716,7 +3760,7 @@
        USER MANAGEMENT
     ════════════════════════════════════════════ */
     function renderUsers() {
-      if (APP.user?.role !== 'admin') { return renderAdminAccessRequired('Admin access required', 'Only admin users can manage system users.'); }
+      if (APP.user?.role !== 'admin') { return '<div class="empty" style="margin-top:80px"><p>Admin access required</p></div>'; }
       const rows = APP.users.length ? APP.users.map(u => `
     <tr>
       <td><strong>${u.name || u.username}</strong></td>
@@ -3810,25 +3854,21 @@
        EXPORT TO EXCEL
     ════════════════════════════════════════════ */
     function exportMachinesExcel() {
-      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Count #': m.countNum || '', 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
       dlExcel([{ name: 'Machines', data }], 'machines_export.xlsx');
     }
 
     function exportTransfersExcel() {
-      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
       dlExcel([{ name: 'Transfer Logs', data }], 'transfers_export.xlsx');
     }
 
     function exportServiceExcel() {
-      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Seq #': r.seqNum || '', 'Count #': r.countNum || '', 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Next Due Date': fmtDate(r.nextDueDate), 'Service Type': r.serviceType, 'Recorded By': r.recordedBy }));
       dlExcel([{ name: 'Service Records', data }], 'service_records_export.xlsx');
     }
 
     function exportAllExcel() {
-      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const machines = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
       const transfers = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '' }));
       const service = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Service Type': r.serviceType, 'Technician': r.technician || '', 'Next Due Date': fmtDate(r.nextDueDate), 'Cost (LKR)': r.cost || 0 }));
@@ -4020,15 +4060,9 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       document.getElementById('uAvatar').textContent = userData.name[0].toUpperCase();
       document.getElementById('uName').textContent = userData.name;
       document.getElementById('uRole').textContent = userData.role;
-
-      ['nav-users', 'nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.add('hidden'));
-      if (userData.role === 'admin') {
-        document.getElementById('nav-users').classList.remove('hidden');
-        document.getElementById('nav-add').classList.remove('hidden');
-        document.getElementById('nav-bulk').classList.remove('hidden');
-        document.getElementById('nav-transfer').classList.remove('hidden');
-      } else if (userData.role === 'operator') {
-        document.getElementById('nav-transfer').classList.remove('hidden');
+      if (userData.role === 'admin') document.getElementById('nav-users').classList.remove('hidden');
+      if (!can('addMachine')) {
+        ['nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.add('hidden'));
       }
     }
 
@@ -4041,17 +4075,24 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       if (!dbOnline) {
         document.getElementById('loadOverlay').classList.add('gone');
         document.getElementById('authScreen').classList.add('vis');
+      setTimeout(showLoginUserSuggestions, 50);
         document.getElementById('authHint').textContent = 'Firebase unavailable — check connection'; return;
       }
       try {
         await seedUsersIfEmpty();
-        document.getElementById('authHint').innerHTML = '<strong>admin</strong> / admin123 &nbsp;·&nbsp; <strong>operator</strong> / op123';
+        const userSnap = await usersCol.where('active', '==', true).get();
+        APP.users = userSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        showLoginUserSuggestions();
         setDbStatus(true);
-      } catch (e) { setDbStatus(false); }
+      } catch (e) {
+        document.getElementById('authHint').innerHTML = '<strong>admin</strong> / admin123 &nbsp;·&nbsp; <strong>operator</strong> / op123';
+        setDbStatus(false);
+      }
 
       document.getElementById('app').classList.remove('vis');
       document.getElementById('loadOverlay').classList.add('gone');
       document.getElementById('authScreen').classList.add('vis');
+      setTimeout(showLoginUserSuggestions, 50);
     });
   </script>
 </body>
