@@ -2009,8 +2009,8 @@
     const ROLES = ['admin', 'operator', 'viewer'];
     const ROLE_PERMS = {
       admin: ['all'],
-      operator: ['addMachine', 'editMachine', 'bulkUpload', 'transfer', 'addService', 'exportData'],
-      viewer: ['exportData']
+      operator: ['transfer', 'addService'],
+      viewer: []
     };
     const DEFAULT_USERS = [
       { username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', active: true },
@@ -2064,6 +2064,19 @@
       if (!role) return false;
       if (ROLE_PERMS[role]?.includes('all')) return true;
       return ROLE_PERMS[role]?.includes(action) || false;
+    }
+
+    function renderAdminAccessRequired(title = 'Admin access required', note = 'Only admin users can use this section.') {
+      return `
+    <div style="min-height:calc(100vh - 140px);display:flex;align-items:center;justify-content:center;padding:24px">
+      <div style="text-align:center;max-width:420px">
+        <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:18px;background:#dbeafe;margin-bottom:16px">
+          <svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="#185FA5" stroke-width="2"><path d="M12 15v2m-6 0h12a2 2 0 002-2V9a2 2 0 00-2-2h-1V6a5 5 0 00-10 0v1H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>
+        </div>
+        <h2 style="font-size:28px;font-weight:800;color:#042C53;margin-bottom:10px">${title}</h2>
+        <p style="font-size:14px;color:#64748b;line-height:1.7">${note}</p>
+      </div>
+    </div>`;
     }
 
     function toast(msg, type = 'info') {
@@ -2367,10 +2380,10 @@
     <div class="ph">
       <div class="ph-left"><h2>Dashboard</h2><p>Live inventory — ${APP.machines.length} machines · ${APP.transfers.length} transfers · ${APP.serviceRecords.length} service records</p></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export All
-        </button>
+        </button>` : ''}
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
       </div>
@@ -2435,9 +2448,9 @@
       <td>${statusBadge(m.status || 'Active')}</td>
 
       <td style="white-space:nowrap">
-        ${can('addMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
-        <button class="btn btn-secondary btn-xs" onclick="quickTransfer('${m.id}')" style="margin-left:3px">Transfer</button>
-        <button class="btn btn-secondary btn-xs" onclick="openAddService('${m.id}')" style="margin-left:3px">Service</button>
+        ${can('editMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
+        ${can('transfer') ? `<button class="btn btn-secondary btn-xs" onclick="quickTransfer('${m.id}')" style="margin-left:3px">Transfer</button>` : ''}
+        ${can('addService') ? `<button class="btn btn-secondary btn-xs" onclick="openAddService('${m.id}')" style="margin-left:3px">Service</button>` : ''}
         ${APP.user?.role === 'admin' ? `<button class="btn btn-danger btn-xs" onclick="deleteMachine('${m.id}','${(m.assetNum || '').replace(/'/g, '&#39;')}')" style="margin-left:3px">Delete</button>` : ''}
       </td>
     </tr>`).join('')
@@ -2461,8 +2474,8 @@
     <div class="ph">
       <div class="ph-left"><h2>All Machines</h2><p>${APP.machines.length} machines across ${FACTORIES.length} factories</p></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>` : ''}
         ${can('bulkUpload') ? `<button class="btn btn-secondary btn-sm" onclick="nav('bulk')">Bulk Upload</button>` : ''}
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
@@ -2507,6 +2520,7 @@
     }
 
     function renderAdd() {
+      if (!can('addMachine')) return renderAdminAccessRequired('Admin access required', 'Only admin users can add new machines.');
       const fOpts = FACTORIES.map(f => `<option value="${f}">${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}">${s}</option>`).join('');
       const nextSeq = getQueuedNextSeqNum();
@@ -2613,6 +2627,7 @@
     }
 
     function addMachineToList() {
+      if (!can('addMachine')) { toast('Access denied for this account.', 'error'); return; }
       const g = id => document.getElementById(id).value.trim();
       const asset = g('fAsset'), seq = g('fSeq'), countNum = g('fCount'), brand = g('fBrand'), model = g('fModel'), serial = g('fSerial'), factory = g('fFactory'), desc = g('fDesc'), status = g('fStatus') || 'Active';
       if (!asset || !countNum || !brand || !model || !serial || !factory) { toast('Fill in all required fields.', 'error'); return; }
@@ -2654,6 +2669,7 @@
     async function saveMachine() { return saveQueuedMachines(); }
 
     async function saveQueuedMachines() {
+      if (!can('addMachine')) { toast('Access denied for this account.', 'error'); return; }
       if (!APP.addQueue.length) { toast('Add at least one machine to the list.', 'error'); return; }
       const btn = document.getElementById('saveMachineBtn');
       if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spin" style="border-top-color:#14532d"></span> Saving…'; }
@@ -2683,6 +2699,7 @@
     }
 
     function openEditMachine(id) {
+      if (!can('editMachine')) { openModal('Edit Machine', renderAdminAccessRequired('Admin access required', 'Only admin users can edit machine details.'), '<button class="btn btn-secondary" onclick="closeModal()">Close</button>', false, true); return; }
       const m = APP.machines.find(x => x.id === id); if (!m) return;
       const fOpts = FACTORIES.map(f => `<option value="${f}"${m.factory === f ? ' selected' : ''}>${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}"${(m.status || 'Active') === s ? ' selected' : ''}>${s}</option>`).join('');
@@ -2704,6 +2721,7 @@
     }
 
     async function saveEditMachine(id) {
+      if (!can('editMachine')) { toast('Admin access required.', 'error'); return; }
       const g = k => document.getElementById('em-' + k).value.trim();
       try {
         await machinesCol.doc(id).update({
@@ -2725,6 +2743,7 @@
        BULK UPLOAD
     ════════════════════════════════════════════ */
     function renderBulk() {
+      if (!can('bulkUpload')) return renderAdminAccessRequired('Admin access required', 'Only admin users can use bulk upload.');
       const validCount = APP.bulkRows.filter(isValidRow).length;
       const pre = APP.bulkRows.length ? `
     <div class="${validCount > 0 ? 'ok-bar' : 'err-bar'}">
@@ -2816,6 +2835,7 @@
       }; reader.readAsBinaryString(file);
     }
     async function importBulk() {
+      if (!can('bulkUpload')) { toast('Access denied for this account.', 'error'); return; }
       const valid = APP.bulkRows.filter(isValidRow); if (!valid.length) return;
       const btn = document.getElementById('importBtn'); btn.disabled = true; btn.innerHTML = '<span class="btn-spin" style="border-top-color:#14532d"></span> Importing…';
       const existing = new Set(APP.machines.map(m => m.assetNum));
@@ -2844,6 +2864,7 @@
        TRANSFER
     ════════════════════════════════════════════ */
     function quickTransfer(id) {
+      if (!can('transfer')) { toast('Access denied for this account.', 'error'); return; }
       APP.selMachineIds = [id]; APP.selMachineId = id; APP.transferTo = ''; nav('transfer');
     }
     function toggleMachineSel(id) {
@@ -2868,6 +2889,7 @@
     }
 
     function renderTransfer() {
+      if (!can('transfer')) return `<div class="empty" style="margin-top:80px"><p>Access denied</p></div>`;
       let list = [...APP.machines];
       if (APP.search) {
         const q = APP.search.toLowerCase();
@@ -3039,6 +3061,7 @@
     }
 
     async function doTransfer() {
+      if (!can('transfer')) { toast('Access denied for this account.', 'error'); return; }
       const selMachines = APP.selMachineIds.map(id => APP.machines.find(m => m.id === id)).filter(Boolean);
       if (!selMachines.length || !APP.transferTo) return;
       const factories = [...new Set(selMachines.map(m => m.factory))];
@@ -3209,10 +3232,10 @@
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" onclick="openAuditTrail()">Audit Trail</button>
-        <button class="btn btn-secondary btn-sm" onclick="exportTransfersExcel()">
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportTransfersExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export Excel
-        </button>
+        </button>` : ''}
       </div>
     </div>
     <div class="tc">
@@ -3351,6 +3374,7 @@
        SERVICE RECORDS
     ════════════════════════════════════════════ */
     function openAddService(machineId) {
+      if (!can('addService')) { toast('Access denied for this account.', 'error'); return; }
       // Pre-select machine if called from a specific machine row
       APP.svcSelIds = machineId ? [machineId] : [];
       APP.svcSearch = '';
@@ -3513,6 +3537,7 @@
     }
 
     async function saveService() {
+      if (!can('addService')) { toast('Access denied for this account.', 'error'); return; }
       const g = id => document.getElementById(id).value.trim();
       const svcDate = g('sv-date'), type = g('sv-type');
       if (!APP.svcSelIds.length) { toast('Select at least one machine.', 'error'); return; }
@@ -3633,8 +3658,8 @@
     <div class="ph">
       <div class="ph-left"><h2>Service Records</h2><p>${APP.serviceRecords.length} records · ${alerts.filter(a => a.severity === 'overdue').length} overdue</p></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="exportServiceExcel()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportServiceExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>` : ''}
         ${can('addService') ? `<button class="btn btn-primary btn-sm" onclick="openAddService('')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Service Record</button>`: ''}
       </div>
@@ -3691,7 +3716,7 @@
        USER MANAGEMENT
     ════════════════════════════════════════════ */
     function renderUsers() {
-      if (APP.user?.role !== 'admin') { return '<div class="empty" style="margin-top:80px"><p>Admin access required</p></div>'; }
+      if (APP.user?.role !== 'admin') { return renderAdminAccessRequired('Admin access required', 'Only admin users can manage system users.'); }
       const rows = APP.users.length ? APP.users.map(u => `
     <tr>
       <td><strong>${u.name || u.username}</strong></td>
@@ -3785,21 +3810,25 @@
        EXPORT TO EXCEL
     ════════════════════════════════════════════ */
     function exportMachinesExcel() {
+      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Count #': m.countNum || '', 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
       dlExcel([{ name: 'Machines', data }], 'machines_export.xlsx');
     }
 
     function exportTransfersExcel() {
+      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
       dlExcel([{ name: 'Transfer Logs', data }], 'transfers_export.xlsx');
     }
 
     function exportServiceExcel() {
+      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const data = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Seq #': r.seqNum || '', 'Count #': r.countNum || '', 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Next Due Date': fmtDate(r.nextDueDate), 'Service Type': r.serviceType, 'Recorded By': r.recordedBy }));
       dlExcel([{ name: 'Service Records', data }], 'service_records_export.xlsx');
     }
 
     function exportAllExcel() {
+      if (!can('exportData')) { toast('Access denied for this account.', 'error'); return; }
       const machines = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
       const transfers = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '' }));
       const service = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Service Type': r.serviceType, 'Technician': r.technician || '', 'Next Due Date': fmtDate(r.nextDueDate), 'Cost (LKR)': r.cost || 0 }));
@@ -3991,9 +4020,15 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       document.getElementById('uAvatar').textContent = userData.name[0].toUpperCase();
       document.getElementById('uName').textContent = userData.name;
       document.getElementById('uRole').textContent = userData.role;
-      if (userData.role === 'admin') document.getElementById('nav-users').classList.remove('hidden');
-      if (!can('addMachine')) {
-        ['nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.add('hidden'));
+
+      ['nav-users', 'nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.add('hidden'));
+      if (userData.role === 'admin') {
+        document.getElementById('nav-users').classList.remove('hidden');
+        document.getElementById('nav-add').classList.remove('hidden');
+        document.getElementById('nav-bulk').classList.remove('hidden');
+        document.getElementById('nav-transfer').classList.remove('hidden');
+      } else if (userData.role === 'operator') {
+        document.getElementById('nav-transfer').classList.remove('hidden');
       }
     }
 
