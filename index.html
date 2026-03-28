@@ -2053,8 +2053,8 @@
     const ROLES = ['admin', 'operator', 'viewer'];
     const ROLE_PERMS = {
       admin: ['all'],
-      operator: ['addMachine', 'editMachine', 'bulkUpload', 'transfer', 'addService', 'exportData'],
-      viewer: ['exportData']
+      operator: ['transfer', 'addService'],
+      viewer: []
     };
     const DEFAULT_USERS = [
       { username: 'admin', password: 'admin123', name: 'Admin User', role: 'admin', active: true },
@@ -2436,10 +2436,10 @@
     <div class="ph">
       <div class="ph-left"><h2>Dashboard</h2><p>Live inventory — ${APP.machines.length} machines · ${APP.transfers.length} transfers · ${APP.serviceRecords.length} service records</p></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export All
-        </button>
+        </button>` : ''}
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
       </div>
@@ -2504,7 +2504,7 @@
       <td>${statusBadge(m.status || 'Active')}</td>
 
       <td style="white-space:nowrap">
-        ${can('addMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
+        ${can('editMachine') ? `<button class="btn btn-secondary btn-xs" onclick="openEditMachine('${m.id}')">Edit</button>` : ''}
         <button class="btn btn-secondary btn-xs" onclick="quickTransfer('${m.id}')" style="margin-left:3px">Transfer</button>
         <button class="btn btn-secondary btn-xs" onclick="openAddService('${m.id}')" style="margin-left:3px">Service</button>
         ${APP.user?.role === 'admin' ? `<button class="btn btn-danger btn-xs" onclick="deleteMachine('${m.id}','${(m.assetNum || '').replace(/'/g, '&#39;')}')" style="margin-left:3px">Delete</button>` : ''}
@@ -2530,8 +2530,8 @@
     <div class="ph">
       <div class="ph-left"><h2>All Machines</h2><p>${APP.machines.length} machines across ${FACTORIES.length} factories</p></div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
-          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
+        ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportMachinesExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>` : ''}
         ${can('bulkUpload') ? `<button class="btn btn-secondary btn-sm" onclick="nav('bulk')">Bulk Upload</button>` : ''}
         ${can('addMachine') ? `<button class="btn btn-primary btn-sm" onclick="nav('add')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Machine</button>`: ''}
@@ -2575,7 +2575,12 @@
       return getNextSeqNum() + APP.addQueue.length;
     }
 
+    function renderAccessDenied(msg = 'Admin access required') {
+      return `<div class="empty" style="margin-top:80px"><p>${msg}</p></div>`;
+    }
+
     function renderAdd() {
+      if (!can('addMachine')) return renderAccessDenied('Admin access required');
       const fOpts = FACTORIES.map(f => `<option value="${f}">${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}">${s}</option>`).join('');
       const nextSeq = getQueuedNextSeqNum();
@@ -2752,6 +2757,7 @@
     }
 
     function openEditMachine(id) {
+      if (!can('editMachine')) { toast('Admin access required', 'error'); return; }
       const m = APP.machines.find(x => x.id === id); if (!m) return;
       const fOpts = FACTORIES.map(f => `<option value="${f}"${m.factory === f ? ' selected' : ''}>${f}</option>`).join('');
       const sOpts = STATUS_OPTS.map(s => `<option value="${s}"${(m.status || 'Active') === s ? ' selected' : ''}>${s}</option>`).join('');
@@ -2794,6 +2800,7 @@
        BULK UPLOAD
     ════════════════════════════════════════════ */
     function renderBulk() {
+      if (!can('bulkUpload')) return renderAccessDenied('Admin access required');
       const validCount = APP.bulkRows.filter(isValidRow).length;
       const pre = APP.bulkRows.length ? `
     <div class="${validCount > 0 ? 'ok-bar' : 'err-bar'}">
@@ -2937,6 +2944,7 @@
     }
 
     function renderTransfer() {
+      if (!can('transfer')) return renderAccessDenied('Access denied');
       let list = [...APP.machines];
       if (APP.search) {
         const q = APP.search.toLowerCase();
@@ -3760,7 +3768,7 @@
        USER MANAGEMENT
     ════════════════════════════════════════════ */
     function renderUsers() {
-      if (APP.user?.role !== 'admin') { return '<div class="empty" style="margin-top:80px"><p>Admin access required</p></div>'; }
+      if (APP.user?.role !== 'admin') return renderAccessDenied('Admin access required');
       const rows = APP.users.length ? APP.users.map(u => `
     <tr>
       <td><strong>${u.name || u.username}</strong></td>
@@ -4060,10 +4068,7 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       document.getElementById('uAvatar').textContent = userData.name[0].toUpperCase();
       document.getElementById('uName').textContent = userData.name;
       document.getElementById('uRole').textContent = userData.role;
-      if (userData.role === 'admin') document.getElementById('nav-users').classList.remove('hidden');
-      if (!can('addMachine')) {
-        ['nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.add('hidden'));
-      }
+      document.getElementById('nav-users').classList.remove('hidden');
     }
 
     window.addEventListener('load', async () => {
@@ -4075,7 +4080,7 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       if (!dbOnline) {
         document.getElementById('loadOverlay').classList.add('gone');
         document.getElementById('authScreen').classList.add('vis');
-      setTimeout(showLoginUserSuggestions, 50);
+        setTimeout(showLoginUserSuggestions, 50);
         document.getElementById('authHint').textContent = 'Firebase unavailable — check connection'; return;
       }
       try {
