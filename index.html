@@ -2195,16 +2195,17 @@
       const overdue = alerts.filter(a => a.severity === 'overdue');
       if (!overdue.length) return;
       document.getElementById('notifPopupSub').textContent = `${overdue.length} machine${overdue.length > 1 ? 's are' : ' is'} overdue for maintenance`;
-      document.getElementById('notifPopupBody').innerHTML = overdue.slice(0, 6).map(a => `
+      document.getElementById('notifPopupBody').innerHTML = `<div style="max-height:340px;overflow-y:auto">${overdue.map(a => `
     <div class="notif-item">
       <div class="notif-dot" style="background:#dc2626"></div>
       <div>
         <strong style="font-size:13px;color:#042C53">${a.machine.brand} ${a.machine.model}</strong>
         <span style="font-size:12px;color:#94a3b8;margin-left:6px">${a.machine.assetNum}</span>
+        <span style="font-family:'Courier New',monospace;font-size:11px;color:#185FA5;margin-left:4px">#${a.machine.seqNum||''}</span>
         <div style="font-size:12px;color:#dc2626;margin-top:2px">Overdue by ${Math.abs(a.diff)} day${Math.abs(a.diff) > 1 ? 's' : ''} — ${factoryBadge(a.machine.factory)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-top:2px">Last service: ${fmtDate(a.serviceDate)} · Next due: ${fmtDate(a.nextDueDate)}</div>
       </div>
-    </div>`).join('');
+    </div>`).join('')}</div>`;
       document.getElementById('notifPopupBg').classList.remove('hidden');
     }
 
@@ -2395,23 +2396,31 @@
         ${soon.length ? `<span class="badge" style="background:#fef9c3;color:#713f12">${soon.length} due soon</span>` : ''}
         <button class="btn btn-warn btn-sm" onclick="nav('service')">View All →</button>
       </div>
-      <div style="padding:12px 16px">
-        ${overdue.slice(0, 3).map(a => `
-          <div class="alert-bar overdue">
+      <div style="max-height:320px;overflow-y:auto;padding:12px 16px">
+        ${overdue.map(a => `
+          <div class="alert-bar overdue" style="margin-bottom:8px">
             <svg class="alert-icon" fill="none" viewBox="0 0 24 24" stroke="#dc2626" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-            <div>
-              <h4>${a.machine.brand} ${a.machine.model} — ${a.machine.assetNum}</h4>
+            <div style="flex:1;min-width:0">
+              <h4>${a.machine.brand} ${a.machine.model}
+                <span class="tag" style="font-size:10px;margin-left:4px">${a.machine.assetNum}</span>
+                <span style="font-family:'Courier New',monospace;font-size:10px;color:#94a3b8;margin-left:4px">#${a.machine.seqNum||''}</span>
+              </h4>
               <p>Overdue by ${Math.abs(a.diff)} day${Math.abs(a.diff) > 1 ? 's' : ''} · ${a.machine.factory} · Next due: ${fmtDate(a.nextDueDate)}</p>
             </div>
+            ${can('addService') ? `<button class="btn btn-danger btn-xs" style="flex-shrink:0" onclick="openAddService('${a.machine.id}')">Log Service</button>` : ''}
           </div>`).join('')}
-        ${soon.slice(0, 2).map(a => `
-          <div class="alert-bar soon">
+        ${soon.map(a => `
+          <div class="alert-bar soon" style="margin-bottom:8px">
             <svg class="alert-icon" fill="none" viewBox="0 0 24 24" stroke="#713f12" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <div>
-              <h4>${a.machine.brand} ${a.machine.model} — ${a.machine.assetNum}</h4>
+            <div style="flex:1;min-width:0">
+              <h4>${a.machine.brand} ${a.machine.model}
+                <span class="tag" style="font-size:10px;margin-left:4px">${a.machine.assetNum}</span>
+                <span style="font-family:'Courier New',monospace;font-size:10px;color:#94a3b8;margin-left:4px">#${a.machine.seqNum||''}</span>
+              </h4>
               <p>Due in ${a.diff} day${a.diff > 1 ? 's' : ''} · ${a.machine.factory} · Next due: ${fmtDate(a.nextDueDate)}</p>
             </div>
           </div>`).join('')}
+        ${overdue.length > 5 ? `<div style="text-align:center;padding:6px;font-size:12px;color:#94a3b8">Scroll to see all ${overdue.length} overdue machines</div>` : ''}
       </div>
     </div>` : '';
 
@@ -3862,18 +3871,45 @@
        EXPORT TO EXCEL
     ════════════════════════════════════════════ */
     function exportMachinesExcel() {
-      const data = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Count #': m.countNum || '', 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
-      dlExcel([{ name: 'Machines', data }], 'machines_export.xlsx');
+      // Apply same filters currently active in the All Machines view
+      let list = [...APP.machines];
+      if (APP.filterFactory !== 'all') list = list.filter(m => m.factory === APP.filterFactory);
+      if (APP.filterStatus !== 'all') list = list.filter(m => (m.status || 'Active') === APP.filterStatus);
+      if (APP.search) {
+        const q = APP.search.toLowerCase();
+        list = list.filter(m =>
+          (m.assetNum || '').toLowerCase().includes(q) ||
+          (m.seqNum || '').toLowerCase().includes(q) ||
+          (m.countNum || '').toLowerCase().includes(q) ||
+          (m.brand || '').toLowerCase().includes(q) ||
+          (m.model || '').toLowerCase().includes(q) ||
+          (m.serialNum || '').toLowerCase().includes(q));
+      }
+      const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
+      const data = list.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Count #': m.countNum || '', 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
+      dlExcel([{ name: 'Machines', data }], `machines${label}.xlsx`);
     }
 
     function exportTransfersExcel() {
-      const data = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
-      dlExcel([{ name: 'Transfer Logs', data }], 'transfers_export.xlsx');
+      // Apply same filters currently active in the Transfer Logs view
+      let list = [...APP.transfers];
+      if (APP.filterFactory !== 'all') list = list.filter(t => t.fromFactory === APP.filterFactory || t.toFactory === APP.filterFactory);
+      if (APP.tlogsDateFrom) { const from = new Date(APP.tlogsDateFrom); from.setHours(0,0,0,0); list = list.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d >= from; }); }
+      if (APP.tlogsDateTo) { const to = new Date(APP.tlogsDateTo); to.setHours(23,59,59,999); list = list.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d <= to; }); }
+      if (APP.search) { const q = APP.search.toLowerCase(); list = list.filter(t => (t.assetNum||'').toLowerCase().includes(q)||(t.serialNum||'').toLowerCase().includes(q)||(t.seqNum||'').toLowerCase().includes(q)||(t.model||'').toLowerCase().includes(q)||(t.gatePassNo||'').toLowerCase().includes(q)||(t.approvalNo||'').toLowerCase().includes(q)); }
+      const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
+      const data = list.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
+      dlExcel([{ name: 'Transfer Logs', data }], `transfers${label}.xlsx`);
     }
 
     function exportServiceExcel() {
-      const data = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Seq #': r.seqNum || '', 'Count #': r.countNum || '', 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Next Due Date': fmtDate(r.nextDueDate), 'Service Type': r.serviceType, 'Recorded By': r.recordedBy }));
-      dlExcel([{ name: 'Service Records', data }], 'service_records_export.xlsx');
+      // Apply same filters currently active in the Service Records view
+      let list = [...APP.serviceRecords];
+      if (APP.filterFactory !== 'all') list = list.filter(r => r.factory === APP.filterFactory);
+      if (APP.search) { const q = APP.search.toLowerCase(); list = list.filter(r => (r.assetNum||'').toLowerCase().includes(q)||(r.seqNum||'').toLowerCase().includes(q)||(r.countNum||'').toLowerCase().includes(q)||(r.serialNum||'').toLowerCase().includes(q)||(r.brand||'').toLowerCase().includes(q)||(r.model||'').toLowerCase().includes(q)); }
+      const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
+      const data = list.map(r => ({ 'Asset #': r.assetNum, 'Seq #': r.seqNum || '', 'Count #': r.countNum || '', 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Next Due Date': fmtDate(r.nextDueDate), 'Service Type': r.serviceType, 'Notes': r.notes || '', 'Recorded By': r.recordedBy }));
+      dlExcel([{ name: 'Service Records', data }], `service${label}.xlsx`);
     }
 
     function exportAllExcel() {
@@ -4068,7 +4104,21 @@ self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise
       document.getElementById('uAvatar').textContent = userData.name[0].toUpperCase();
       document.getElementById('uName').textContent = userData.name;
       document.getElementById('uRole').textContent = userData.role;
-      document.getElementById('nav-users').classList.remove('hidden');
+      const role = userData.role;
+      // User Management — admin only
+      if (role === 'admin') {
+        document.getElementById('nav-users')?.classList.remove('hidden');
+      } else {
+        document.getElementById('nav-users')?.classList.add('hidden');
+      }
+      // Add Machine + Bulk Upload — admin only
+      if (!can('addMachine')) {
+        ['nav-add', 'nav-bulk'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+      }
+      // Transfer — operator + admin; hide for viewer
+      if (!can('transfer')) {
+        document.getElementById('nav-transfer')?.classList.add('hidden');
+      }
     }
 
     window.addEventListener('load', async () => {
