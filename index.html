@@ -2069,6 +2069,7 @@
       machines: [], transfers: [], serviceRecords: [], users: [], auditTrail: [],
       search: '', filterFactory: 'all', filterStatus: 'all',
       selMachineId: null, selMachineIds: [], transferTo: '',
+      transferForm: { date: '', gatePassNo: '', approvalNo: '' },
       bulkRows: [],
       addQueue: [],
       activeTab: 'list',
@@ -2095,6 +2096,10 @@
     function toDateVal(d) {
       if (!d) return null;
       try { return d.toDate ? d.toDate() : new Date(d); } catch { return null; }
+    }
+    function getTransferDateVal(t) {
+      if (!t) return null;
+      return toDateVal(t.date || t.transferDate || t.timestamp);
     }
     function daysDiff(d) {
       const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -2224,7 +2229,7 @@
         snap => { APP.transfers = snap.docs.map(d => ({ id: d.id, ...d.data() })); setDbStatus(true); render(); },
         err => {
           setDbStatus(false);
-          transfersCol.get().then(s => { APP.transfers = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => toDateVal(b.timestamp) - toDateVal(a.timestamp)); render(); }).catch(() => { });
+          transfersCol.get().then(s => { APP.transfers = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => getTransferDateVal(b) - getTransferDateVal(a)); render(); }).catch(() => { });
         }
       );
       unsubS = serviceCol.orderBy('timestamp', 'desc').onSnapshot(
@@ -2331,7 +2336,10 @@
     ════════════════════════════════════════════ */
     function nav(view) {
       APP.view = view; APP.search = ''; APP.filterFactory = 'all'; APP.filterStatus = 'all'; APP.activeTab = 'list'; APP.machinesPage = 1;
-      if (view !== 'transfer') { APP.selMachineId = null; APP.selMachineIds = []; APP.transferTo = ''; }
+      if (view !== 'transfer') {
+        APP.selMachineId = null; APP.selMachineIds = []; APP.transferTo = '';
+        APP.transferForm = { date: '', gatePassNo: '', approvalNo: '' };
+      }
       if (view !== 'tlogs') { APP.tlogsPage = 1; APP.tlogsDateFrom = ''; APP.tlogsDateTo = ''; APP.tlogsShowDateFilter = false; }
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
       const ni = document.getElementById('nav-' + view); if (ni) ni.classList.add('active');
@@ -2340,10 +2348,20 @@
     function render() {
       if (!APP.user) return;
 
-      // Capture focused search input state BEFORE wiping DOM
+      // Capture focused input state BEFORE wiping DOM
       const act = document.activeElement;
-      const savedId = (act && act.id === 'searchInput') ? 'searchInput' : null;
+      const savedId = (act && ['searchInput', 'tfDate', 'tfGatePass', 'tfApproval'].includes(act.id)) ? act.id : null;
       const savedPos = savedId && act.selectionStart != null ? act.selectionStart : null;
+
+      // Preserve transfer form values across re-renders caused by live snapshots/UI updates
+      if (APP.view === 'transfer') {
+        const tfDateEl = document.getElementById('tfDate');
+        const tfGatePassEl = document.getElementById('tfGatePass');
+        const tfApprovalEl = document.getElementById('tfApproval');
+        if (tfDateEl) APP.transferForm.date = tfDateEl.value || APP.transferForm.date || '';
+        if (tfGatePassEl) APP.transferForm.gatePassNo = tfGatePassEl.value || '';
+        if (tfApprovalEl) APP.transferForm.approvalNo = tfApprovalEl.value || '';
+      }
 
       const map = {
         dashboard: renderDashboard, machines: renderMachines, add: renderAdd, bulk: renderBulk,
@@ -2427,9 +2445,9 @@
       const cm = new Date().getMonth();
       const cy = new Date().getFullYear();
       const cmTransfers = APP.transfers.filter(t => {
-        const d = new Date(t.timestamp || t.date);
+        const d = getTransferDateVal(t);
         return d.getMonth() === cm && d.getFullYear() === cy;
-      }).sort((a, b) => new Date(b.timestamp || b.date).getTime() - new Date(a.timestamp || a.date).getTime());
+      }).sort((a, b) => getTransferDateVal(b).getTime() - getTransferDateVal(a).getTime());
 
       const recentXfers = cmTransfers.slice(0, 5).map(t => `
     <tr>
@@ -2438,7 +2456,7 @@
       <td><strong>${t.brand || ''}</strong> ${t.model || ''}</td>
       <td>${factoryBadge(t.fromFactory)}</td><td style="color:#94a3b8;font-size:11px">→</td>
       <td>${factoryBadge(t.toFactory)}</td>
-      <td style="color:#64748b;font-size:12px">${fmtDate(t.timestamp || t.date)}</td>
+      <td style="color:#64748b;font-size:12px">${fmtDate(getTransferDateVal(t))}</td>
     </tr>`).join('') || `<tr><td colspan="7"><div class="empty" style="padding:24px"><p>No transfers yet</p></div></td></tr>`;
 
       return `
@@ -3030,6 +3048,10 @@
     </div>`;
       }).join('');
 
+      const tfDateVal = APP.transferForm.date || new Date().toISOString().slice(0, 10);
+      const tfGatePassVal = (APP.transferForm.gatePassNo || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const tfApprovalVal = (APP.transferForm.approvalNo || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
       return `
     <div class="ph">
       <div class="ph-left"><h2>Transfer Machine</h2>
@@ -3095,15 +3117,15 @@
         <div class="form-grid" style="margin-bottom:12px">
           <div class="fg" style="grid-column:1/-1">
             <label class="fl">Transfer Date <span class="req">*</span></label>
-            <input class="fi" type="date" id="tfDate" value="${new Date().toISOString().slice(0, 10)}"/>
+            <input class="fi" type="date" id="tfDate" value="${tfDateVal}" onchange="APP.transferForm.date=this.value"/>
           </div>
           <div class="fg">
             <label class="fl">Gate Pass No <span class="req">*</span></label>
-            <input class="fi" id="tfGatePass" placeholder="e.g. GP-2024-0045"/>
+            <input class="fi" id="tfGatePass" placeholder="e.g. GP-2024-0045" value="${tfGatePassVal}" oninput="APP.transferForm.gatePassNo=this.value"/>
           </div>
           <div class="fg">
             <label class="fl">General Approval <span class="req">*</span></label>
-            <input class="fi" id="tfApproval" placeholder="e.g. GA-2024-0112"/>
+            <input class="fi" id="tfApproval" placeholder="e.g. GA-2024-0112" value="${tfApprovalVal}" oninput="APP.transferForm.approvalNo=this.value"/>
           </div>
         </div>
         <div class="form-actions">
@@ -3131,9 +3153,10 @@
       if (factories.length > 1) { toast('All machines must be from the same factory.', 'error'); return; }
       if (factories[0] === APP.transferTo) { toast('Machines are already at this factory.', 'error'); return; }
 
-      const tfDate = (document.getElementById('tfDate') || {}).value || new Date().toISOString().slice(0, 10);
-      const gatePassNo = (document.getElementById('tfGatePass') || {}).value?.trim() || '';
-      const approvalNo = (document.getElementById('tfApproval') || {}).value?.trim() || '';
+      const tfDate = (document.getElementById('tfDate') || {}).value || APP.transferForm.date || new Date().toISOString().slice(0, 10);
+      const gatePassNo = (document.getElementById('tfGatePass') || {}).value?.trim() || APP.transferForm.gatePassNo?.trim() || '';
+      const approvalNo = (document.getElementById('tfApproval') || {}).value?.trim() || APP.transferForm.approvalNo?.trim() || '';
+      APP.transferForm = { date: tfDate, gatePassNo, approvalNo };
       if (!gatePassNo) { toast('Please enter the Gate Pass Number.', 'error'); document.getElementById('tfGatePass')?.focus(); return; }
       if (!approvalNo) { toast('Please enter the General Approval Number.', 'error'); document.getElementById('tfApproval')?.focus(); return; }
 
@@ -3160,6 +3183,7 @@
               description: m.description || '',
               fromFactory: from, toFactory: to,
               date: dateStr,
+              transferDate: dateStr,
               gatePassNo, approvalNo,
               batchTransfer: selMachines.length > 1,
               batchCount: selMachines.length,
@@ -3171,6 +3195,7 @@
         }
         const count = selMachines.length;
         APP.selMachineIds = []; APP.selMachineId = null; APP.transferTo = '';
+        APP.transferForm = { date: '', gatePassNo: '', approvalNo: '' };
         toast(`✓ ${count} machine${count > 1 ? 's' : ''} transferred: ${from} → ${to}`, 'success');
         nav('tlogs');
       } catch (e) {
@@ -3212,12 +3237,18 @@
       // 3. Filter by date range (optional)
       if (APP.tlogsDateFrom) {
         const from = new Date(APP.tlogsDateFrom); from.setHours(0, 0, 0, 0);
-        logs = logs.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d >= from; });
+        logs = logs.filter(t => { const d = getTransferDateVal(t); return d && d >= from; });
       }
       if (APP.tlogsDateTo) {
         const to = new Date(APP.tlogsDateTo); to.setHours(23, 59, 59, 999);
-        logs = logs.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d <= to; });
+        logs = logs.filter(t => { const d = getTransferDateVal(t); return d && d <= to; });
       }
+
+      logs.sort((a, b) => {
+        const bd = getTransferDateVal(b)?.getTime() || 0;
+        const ad = getTransferDateVal(a)?.getTime() || 0;
+        return bd - ad;
+      });
 
       const totalFiltered = logs.length;
       const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
@@ -3258,7 +3289,7 @@
       <td>${factoryBadge(t.toFactory)}</td>
       <td><span class="tag" style="background:#fff7ed;color:#9a3412;font-size:11px">${t.gatePassNo || '—'}</span></td>
       <td><span class="tag" style="background:#f5f3ff;color:#5b21b6;font-size:11px">${t.approvalNo || '—'}</span></td>
-      <td style="color:#64748b;font-size:12px;white-space:nowrap">${fmtDate(t.timestamp || t.date)}</td>
+      <td style="color:#64748b;font-size:12px;white-space:nowrap">${fmtDate(getTransferDateVal(t))}</td>
       <td style="font-size:12px">${t.transferredBy || '—'}${t.batchTransfer ? `<span class="badge" style="background:#f0fdf4;color:#14532d;font-size:9px;margin-left:4px">batch ${t.batchCount}</span>` : ''}</td>
       <td style="white-space:nowrap">
         ${APP.user?.role === 'admin' ? `<button class="btn btn-secondary btn-xs" onclick="openEditTransfer('${t.id}')">Edit</button>` : ''}
@@ -3894,11 +3925,11 @@
       // Apply same filters currently active in the Transfer Logs view
       let list = [...APP.transfers];
       if (APP.filterFactory !== 'all') list = list.filter(t => t.fromFactory === APP.filterFactory || t.toFactory === APP.filterFactory);
-      if (APP.tlogsDateFrom) { const from = new Date(APP.tlogsDateFrom); from.setHours(0,0,0,0); list = list.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d >= from; }); }
-      if (APP.tlogsDateTo) { const to = new Date(APP.tlogsDateTo); to.setHours(23,59,59,999); list = list.filter(t => { const d = toDateVal(t.timestamp || t.date); return d && d <= to; }); }
+      if (APP.tlogsDateFrom) { const from = new Date(APP.tlogsDateFrom); from.setHours(0,0,0,0); list = list.filter(t => { const d = getTransferDateVal(t); return d && d >= from; }); }
+      if (APP.tlogsDateTo) { const to = new Date(APP.tlogsDateTo); to.setHours(23,59,59,999); list = list.filter(t => { const d = getTransferDateVal(t); return d && d <= to; }); }
       if (APP.search) { const q = APP.search.toLowerCase(); list = list.filter(t => (t.assetNum||'').toLowerCase().includes(q)||(t.serialNum||'').toLowerCase().includes(q)||(t.seqNum||'').toLowerCase().includes(q)||(t.model||'').toLowerCase().includes(q)||(t.gatePassNo||'').toLowerCase().includes(q)||(t.approvalNo||'').toLowerCase().includes(q)); }
       const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
-      const data = list.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
+      const data = list.map(t => ({ 'Asset #': t.assetNum, 'Count #': t.countNum || '', 'Seq #': t.seqNum || '', 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Gate Pass No': t.gatePassNo || '', 'Approval No': t.approvalNo || '', 'Date': fmtDate(getTransferDateVal(t)), 'Transferred By': t.transferredBy, 'Reason': t.reason || '', 'Notes': t.notes || '' }));
       dlExcel([{ name: 'Transfer Logs', data }], `transfers${label}.xlsx`);
     }
 
@@ -3914,7 +3945,7 @@
 
     function exportAllExcel() {
       const machines = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
-      const transfers = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Date': fmtDate(t.date || t.timestamp), 'Transferred By': t.transferredBy, 'Reason': t.reason || '' }));
+      const transfers = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Date': fmtDate(getTransferDateVal(t)), 'Transferred By': t.transferredBy, 'Reason': t.reason || '' }));
       const service = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Service Type': r.serviceType, 'Technician': r.technician || '', 'Next Due Date': fmtDate(r.nextDueDate), 'Cost (LKR)': r.cost || 0 }));
       dlExcel([{ name: 'Machines', data: machines }, { name: 'Transfer Logs', data: transfers }, { name: 'Service Records', data: service }], 'sm_inventory_export.xlsx');
     }
