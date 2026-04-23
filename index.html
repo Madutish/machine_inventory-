@@ -1920,6 +1920,14 @@
             <span class="nav-label">Service Records</span>
             <span class="nav-badge hidden" id="nb-service"></span>
           </div>
+          <div class="nav-item" id="nav-pending" data-label="Machines Needing Service" title="Machines Needing Service" onclick="nav('pending')">
+            <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M12 9v4m0 4h.01" />
+              <path d="M10.29 3.86l-7.5 13A2 2 0 004.53 20h14.94a2 2 0 001.74-3.14l-7.5-13a2 2 0 00-3.48 0z" />
+            </svg>
+            <span class="nav-label">Machines Needing Service</span>
+            <span class="nav-badge hidden" id="nb-pending"></span>
+          </div>
           <div class="nav-item hidden" id="nav-users" data-label="Users" onclick="nav('users')">
             <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
@@ -2078,7 +2086,7 @@
       tlogsDateFrom: '', tlogsDateTo: '',
       tlogsShowDateFilter: false,
       svcSelIds: [], svcSearch: '', svcFilterFactory: 'all',
-      machinesPage: 1
+      machinesPage: 1, pendingTab: 'all', pendingPage: 1
     };
 
     /* ════════════════════════════════════════════
@@ -2136,7 +2144,84 @@
         hint.innerHTML = 'Users: ' + filtered.slice(0, 5).map(u => `<strong>${u.username}</strong> <span style="color:#94a3b8">(${u.name})</span>`).join(' &nbsp;·&nbsp; ');
       } else if (users.length) {
         hint.innerHTML = 'Users: ' + users.slice(0, 5).map(u => `<strong>${u.username}</strong> <span style="color:#94a3b8">(${u.name})</span>`).join(' &nbsp;·&nbsp; ');
+      } else {
+        hint.textContent = dbOnline ? 'No active users found.' : 'Firebase unavailable — check connection';
       }
+    }
+
+    async function reloadLoginUsers() {
+      if (!dbOnline || !usersCol) {
+        showLoginUserSuggestions();
+        return;
+      }
+      try {
+        const snap = await usersCol.where('active', '==', true).get();
+        APP.users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn('reload login users:', e);
+      }
+      showLoginUserSuggestions();
+    }
+
+    function getLatestServiceRecords(list = APP.serviceRecords) {
+      const latestByMachine = new Map();
+      (list || []).forEach(rec => {
+        const key = rec.machineId || rec.serialNum || rec.assetNum || rec.id;
+        const current = latestByMachine.get(key);
+        const recDate = toDateVal(rec.serviceDate) || toDateVal(rec.timestamp) || new Date(0);
+        const currentDate = current ? (toDateVal(current.serviceDate) || toDateVal(current.timestamp) || new Date(0)) : null;
+        if (!current || recDate > currentDate) latestByMachine.set(key, rec);
+      });
+      return [...latestByMachine.values()].sort((a, b) => {
+        const bd = toDateVal(b.serviceDate) || toDateVal(b.timestamp) || new Date(0);
+        const ad = toDateVal(a.serviceDate) || toDateVal(a.timestamp) || new Date(0);
+        return bd - ad;
+      });
+    }
+
+    function getServiceCoverage(factoryFilter = 'all', search = '') {
+      const q = (search || '').trim().toLowerCase();
+      const latestMap = new Map(getLatestServiceRecords().map(r => [r.machineId || r.id, r]));
+      const baseMachines = APP.machines.filter(m => {
+        if (!m) return false;
+        if (factoryFilter !== 'all' && m.factory !== factoryFilter) return false;
+        if (m.status === 'Retired' || m.status === 'To Be Dispose') return false;
+        if (!q) return true;
+        return [m.assetNum, m.seqNum, m.countNum, m.serialNum, m.brand, m.model, m.factory]
+          .some(v => String(v || '').toLowerCase().includes(q));
+      });
+
+      const pending = { neverServiced: [], overdue: [], dueSoon: [], noDueDate: [], upToDate: [] };
+      baseMachines.forEach(m => {
+        const rec = latestMap.get(m.id);
+        if (!rec) {
+          pending.neverServiced.push({ machine: m, latestService: null, diff: null, reason: 'Never serviced' });
+          return;
+        }
+        if (!rec.nextDueDate) {
+          pending.noDueDate.push({ machine: m, latestService: rec, diff: null, reason: 'No next due date set' });
+          return;
+        }
+        const diff = daysDiff(rec.nextDueDate);
+        if (diff === null) {
+          pending.noDueDate.push({ machine: m, latestService: rec, diff: null, reason: 'No next due date set' });
+        } else if (diff < 0) {
+          pending.overdue.push({ machine: m, latestService: rec, diff, reason: 'Overdue' });
+        } else if (diff <= 30) {
+          pending.dueSoon.push({ machine: m, latestService: rec, diff, reason: 'Due soon' });
+        } else {
+          pending.upToDate.push({ machine: m, latestService: rec, diff, reason: 'Up to date' });
+        }
+      });
+
+      const needsService = [...pending.neverServiced, ...pending.overdue, ...pending.dueSoon, ...pending.noDueDate];
+      return {
+        ...pending,
+        needsService,
+        totalMachines: baseMachines.length,
+        servicedCount: baseMachines.length - pending.neverServiced.length,
+        latestMap
+      };
     }
 
     function toast(msg, type = 'info') {
@@ -2294,7 +2379,7 @@
         btn.innerHTML = '<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg> Sign In';
       }
     }
-    function doLogout() {
+    async function doLogout() {
       stopListeners(); closeModal();
       sessionStorage.removeItem('smSession');
       localStorage.removeItem('smSession');
@@ -2303,19 +2388,20 @@
         view: 'dashboard', search: '', filterFactory: 'all', filterStatus: 'all',
         selMachineId: null, selMachineIds: [], transferTo: '', bulkRows: [], addQueue: [], activeTab: 'list', notifShown: false,
         tlogsPage: 1, tlogsDateFrom: '', tlogsDateTo: '', tlogsShowDateFilter: false,
-        svcSelIds: [], svcSearch: '', svcFilterFactory: 'all', machinesPage: 1
+        svcSelIds: [], svcSearch: '', svcFilterFactory: 'all', machinesPage: 1, pendingTab: 'all', pendingPage: 1
       });
       document.getElementById('app').classList.remove('vis');
       ['nav-users', 'nav-add', 'nav-bulk', 'nav-transfer'].forEach(id => document.getElementById(id).classList.remove('hidden'));
       document.getElementById('loginUser').value = '';
       document.getElementById('loginPass').value = '';
+      document.getElementById('loginUserList').innerHTML = '';
       document.getElementById('authErr').style.display = 'none';
       // Reset login button back to default state
       const btn = document.getElementById('loginBtn');
       btn.disabled = false;
       btn.innerHTML = '<svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg> Sign In';
       document.getElementById('authScreen').classList.add('vis');
-      setTimeout(showLoginUserSuggestions, 50);
+      await reloadLoginUsers();
     }
 
     /* ════════════════════════════════════════════
@@ -2335,7 +2421,8 @@
        NAVIGATION
     ════════════════════════════════════════════ */
     function nav(view) {
-      APP.view = view; APP.search = ''; APP.filterFactory = 'all'; APP.filterStatus = 'all'; APP.activeTab = 'list'; APP.machinesPage = 1;
+      APP.view = view; APP.search = ''; APP.filterFactory = 'all'; APP.filterStatus = 'all'; APP.activeTab = 'list'; APP.machinesPage = 1; APP.pendingPage = 1;
+      if (view !== 'pending') APP.pendingTab = 'all';
       if (view !== 'transfer') {
         APP.selMachineId = null; APP.selMachineIds = []; APP.transferTo = '';
         APP.transferForm = { date: '', gatePassNo: '', approvalNo: '' };
@@ -2365,7 +2452,7 @@
 
       const map = {
         dashboard: renderDashboard, machines: renderMachines, add: renderAdd, bulk: renderBulk,
-        transfer: renderTransfer, tlogs: renderTransferLogs, service: renderService, users: renderUsers
+        transfer: renderTransfer, tlogs: renderTransferLogs, service: renderService, pending: renderPendingService, users: renderUsers
       };
       document.getElementById('mainContent').innerHTML = (map[APP.view] || renderDashboard)();
       updateNavBadges();
@@ -2391,6 +2478,7 @@
       const alerts = getAlerts();
       const overdue = alerts.filter(a => a.severity === 'overdue');
       const soon = alerts.filter(a => a.severity === 'soon');
+      const coverage = getServiceCoverage();
 
       const factoryCards = FACTORIES.map(f => {
         const ml = APP.machines.filter(m => m.factory === f);
@@ -2462,7 +2550,7 @@
       return `
     <div class="ph">
       <div class="ph-left"><h2>Dashboard</h2><p>Live inventory — ${APP.machines.length} machines · ${APP.transfers.length} transfers · ${APP.serviceRecords.length} service records</p></div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${can('exportData') ? `<button class="btn btn-secondary btn-sm" onclick="exportAllExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>
           Export All
@@ -3638,21 +3726,21 @@
       btn.disabled = true; btn.innerHTML = '<span class="btn-spin"></span> Saving…';
       const nextDueDate = document.getElementById('sv-next').value || null;
       try {
-        // Save one record per machine, all with same service details
+        // Keep only one current service record per machine by using a stable document id.
         for (let i = 0; i < APP.svcSelIds.length; i += 400) {
           const batch = db.batch();
           APP.svcSelIds.slice(i, i + 400).forEach(machineId => {
             const m = APP.machines.find(x => x.id === machineId);
             if (!m) return;
-            batch.set(serviceCol.doc(), {
+            batch.set(serviceCol.doc(`current_${machineId}`), {
               machineId, assetNum: m.assetNum || '', seqNum: m.seqNum || '', countNum: m.countNum || '',
               brand: m.brand || '', model: m.model || '', serialNum: m.serialNum || '', factory: m.factory || '',
               serviceDate: svcDate, nextDueDate, serviceType: type,
               partsReplaced: '', notes: '',
               batchService: APP.svcSelIds.length > 1, batchCount: APP.svcSelIds.length,
-              recordedBy: APP.user.name,
+              recordedBy: APP.user?.name || '',
               timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            }, { merge: true });
             // Mark as under repair if applicable
             if (type === 'Repair') batch.update(machinesCol.doc(machineId), { status: 'Under Repair', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
           });
@@ -3676,9 +3764,175 @@
       _sSearchTimer = setTimeout(render, 280);
     }
 
+
+    function getPendingServiceLists() {
+      const coverage = getServiceCoverage(APP.filterFactory, APP.search);
+      const lists = {
+        all: coverage.needsService,
+        never: coverage.neverServiced,
+        overdue: coverage.overdue,
+        soon: coverage.dueSoon,
+        nodue: coverage.noDueDate
+      };
+      return { coverage, lists };
+    }
+
+    function renderPendingTableRows(list, kind) {
+      return list.map(item => {
+        const m = item.machine;
+        const rec = item.latestService;
+        const dueText = rec ? fmtDate(rec.nextDueDate) : '—';
+        const serviceText = rec ? fmtDate(rec.serviceDate) : 'Never';
+        const statusHtml = kind === 'never'
+          ? `<span class="badge" style="background:#fee2e2;color:#991b1b">Never serviced</span>`
+          : kind === 'nodue'
+            ? `<span class="badge" style="background:#fef3c7;color:#92400e">No next due</span>`
+            : kind === 'overdue'
+              ? `<span class="badge sev-overdue">Overdue ${Math.abs(item.diff)}d</span>`
+              : kind === 'soon'
+                ? `<span class="badge sev-soon">Due in ${item.diff}d</span>`
+                : !rec
+                  ? `<span class="badge" style="background:#fee2e2;color:#991b1b">Never serviced</span>`
+                  : item.reason === 'No next due date set'
+                    ? `<span class="badge" style="background:#fef3c7;color:#92400e">No next due</span>`
+                    : item.diff < 0
+                      ? `<span class="badge sev-overdue">Overdue ${Math.abs(item.diff)}d</span>`
+                      : `<span class="badge sev-soon">Due in ${item.diff}d</span>`;
+        return `<tr>
+          <td><span class="tag">${m.assetNum || '—'}</span></td>
+          <td style="font-family:'Courier New',monospace;font-size:11px;color:#374151;font-weight:700">${m.seqNum || '—'}</td>
+          <td><span class="tag">${m.countNum || '—'}</span></td>
+          <td><span class="tag tag-ser">${m.serialNum || '—'}</span></td>
+          <td><strong>${m.brand || ''}</strong> ${m.model || ''}</td>
+          <td>${factoryBadge(m.factory)}</td>
+          <td style="color:#64748b;font-size:12px;white-space:nowrap">${serviceText}</td>
+          <td style="color:#64748b;font-size:12px;white-space:nowrap">${dueText}</td>
+          <td>${statusHtml}</td>
+          <td>${can('addService') ? `<button class="btn btn-primary btn-xs" onclick="openAddService('${m.id}')">Log Service</button>` : '—'}</td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="10"><div class="empty" style="padding:24px"><p>No machines in this list</p></div></td></tr>`;
+    }
+
+    function exportPendingServiceExcel() {
+      const { lists } = getPendingServiceLists();
+      const mapRows = (list, fallbackType='') => list.map(item => {
+        const m = item.machine || {};
+        const rec = item.latestService || {};
+        let status = fallbackType;
+        if (!status) {
+          if (!item.latestService) status = 'Never Serviced';
+          else if (item.reason === 'No next due date set') status = 'Missing Next Due Date';
+          else if ((item.diff ?? 9999) < 0) status = 'Overdue';
+          else status = 'Due Soon';
+        }
+        return {
+          'Asset #': m.assetNum || '',
+          'Seq #': m.seqNum || '',
+          'Count #': m.countNum || '',
+          'Serial #': m.serialNum || '',
+          'Brand': m.brand || '',
+          'Model': m.model || '',
+          'Factory': m.factory || '',
+          'Last Service Date': item.latestService ? fmtDate(rec.serviceDate) : 'Never',
+          'Next Due Date': item.latestService ? fmtDate(rec.nextDueDate) : '—',
+          'Status': status,
+          'Days': item.diff == null ? '' : item.diff,
+          'Service Type': rec.serviceType || ''
+        };
+      });
+      const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
+      dlExcel([
+        { name: 'All Need Service', data: mapRows(lists.all) },
+        { name: 'Never Serviced', data: mapRows(lists.never, 'Never Serviced') },
+        { name: 'Overdue', data: mapRows(lists.overdue, 'Overdue') },
+        { name: 'Due Soon', data: mapRows(lists.soon, 'Due Soon') },
+        { name: 'Missing Next Due', data: mapRows(lists.nodue, 'Missing Next Due Date') }
+      ], `pending_service${label}.xlsx`);
+    }
+
+    function renderPendingService() {
+      const { coverage, lists } = getPendingServiceLists();
+      const tab = APP.pendingTab || 'all';
+      const titles = {
+        all: 'All Machines Needing Service',
+        never: 'Never Serviced Machines',
+        overdue: 'Overdue Machines',
+        soon: 'Due Soon Machines',
+        nodue: 'Missing Next Due Date'
+      };
+      const counts = {
+        all: coverage.needsService.length,
+        never: coverage.neverServiced.length,
+        overdue: coverage.overdue.length,
+        soon: coverage.dueSoon.length,
+        nodue: coverage.noDueDate.length
+      };
+      const kinds = { all: 'all', never: 'never', overdue: 'overdue', soon: 'soon', nodue: 'nodue' };
+      const list = lists[tab] || lists.all;
+      const PAGE_SIZE = 50;
+      const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      if (!APP.pendingPage) APP.pendingPage = 1;
+      if (APP.pendingPage > totalPages) APP.pendingPage = totalPages;
+      const start = (APP.pendingPage - 1) * PAGE_SIZE;
+      const pageList = list.slice(start, start + PAGE_SIZE);
+      const fOpts = FACTORIES.map(f => `<option value="${f}"${APP.filterFactory === f ? ' selected' : ''}>${f}</option>`).join('');
+      const tabs = [
+        ['all', `All (${counts.all})`],
+        ['never', `Never Serviced (${counts.never})`],
+        ['overdue', `Overdue (${counts.overdue})`],
+        ['soon', `Due Soon (${counts.soon})`],
+        ['nodue', `Missing Next Due (${counts.nodue})`]
+      ].map(([key, label]) => `<button class="tab-btn ${tab === key ? 'active' : ''}" onclick="APP.pendingTab='${key}';APP.pendingPage=1;render()">${label}</button>`).join('');
+      const pagerNums = totalPages > 1 ? Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+        let pageNum;
+        if (totalPages <= 7) pageNum = i + 1;
+        else if (APP.pendingPage <= 4) pageNum = i + 1;
+        else if (APP.pendingPage >= totalPages - 3) pageNum = totalPages - 6 + i;
+        else pageNum = APP.pendingPage - 3 + i;
+        return `<button class="pgn-btn ${APP.pendingPage === pageNum ? 'active' : ''}" onclick="APP.pendingPage=${pageNum};render()">${pageNum}</button>`;
+      }).join('') : '';
+      return `
+    <div class="ph">
+      <div class="ph-left"><h2>Machines Needing Service</h2><p>${coverage.needsService.length} machines require action · ${coverage.neverServiced.length} never serviced · ${coverage.overdue.length} overdue</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary btn-sm" onclick="nav('service')">Back to Service Records</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportPendingServiceExcel()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
+        ${can('addService') ? `<button class="btn btn-primary btn-sm" onclick="openAddService('')"><svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Service Record</button>`: ''}
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="sc-badge" style="background:#dbeafe;color:#1e40af">Fleet</div><div class="sc-count">${coverage.totalMachines}</div><div class="sc-label">Machines in scope</div></div>
+      <div class="stat-card"><div class="sc-badge" style="background:#dcfce7;color:#14532d">Serviced</div><div class="sc-count" style="color:#14532d">${coverage.servicedCount}</div><div class="sc-label">Have service record</div></div>
+      <div class="stat-card"><div class="sc-badge" style="background:#fee2e2;color:#991b1b">Need Service</div><div class="sc-count" style="color:#991b1b">${coverage.needsService.length}</div><div class="sc-label">Pending attention</div></div>
+      <div class="stat-card"><div class="sc-badge" style="background:#fef9c3;color:#713f12">Due Soon</div><div class="sc-count" style="color:#713f12">${coverage.dueSoon.length}</div><div class="sc-label">Within 30 days</div></div>
+    </div>
+    <div class="tc">
+      <div class="tc-toolbar">
+        <span class="tc-title">${titles[tab]}</span>
+        <div class="search-wrap">
+          <svg class="s-icon" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input class="si" id="searchInput" placeholder="Search asset, seq, serial, brand, model..." value="${APP.search || ''}" oninput="APP.search=this.value;APP.pendingPage=1;render()"/>
+        </div>
+        <select class="sf" onchange="APP.filterFactory=this.value;APP.pendingPage=1;render()">
+          <option value="all">All Factories</option>${fOpts}
+        </select>
+      </div>
+      <div style="padding:14px 16px 0"><div class="tab-bar">${tabs}</div></div>
+      <div class="tw"><table><thead><tr><th>Asset #</th><th style="color:#185FA5">Seq #</th><th>Count #</th><th style="color:#185FA5">Serial #</th><th style="color:#185FA5">Machine</th><th>Factory</th><th>Last Service</th><th>Next Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${renderPendingTableRows(pageList, kinds[tab])}</tbody></table></div>
+      <div class="pgn">
+        <div class="pgn-info">Showing ${list.length ? start + 1 : 0}-${Math.min(start + PAGE_SIZE, list.length)} of ${list.length} machines</div>
+        <button class="pgn-btn" onclick="if(APP.pendingPage>1){APP.pendingPage--;render()}" ${APP.pendingPage <= 1 ? 'disabled' : ''}>Prev</button>
+        ${pagerNums}
+        <button class="pgn-btn" onclick="if(APP.pendingPage<${totalPages}){APP.pendingPage++;render()}" ${APP.pendingPage >= totalPages ? 'disabled' : ''}>Next</button>
+      </div>
+    </div>`;
+    }
+
     function renderService() {
       const alerts = getAlerts();
-      let records = [...APP.serviceRecords];
+      const coverage = getServiceCoverage(APP.filterFactory, APP.search);
+      let records = getLatestServiceRecords();
       if (APP.filterFactory !== 'all') records = records.filter(r => r.factory === APP.filterFactory);
       if (APP.search) {
         const q = APP.search.toLowerCase();
@@ -3728,6 +3982,77 @@
       }).join('')}
     </div></div>` : '';
 
+
+      const pendingRows = (list, kind) => list.slice(0, 12).map(item => {
+        const m = item.machine;
+        const rec = item.latestService;
+        const dueText = rec ? fmtDate(rec.nextDueDate) : '—';
+        const serviceText = rec ? fmtDate(rec.serviceDate) : 'Never';
+        const statusHtml = kind === 'never'
+          ? `<span class="badge" style="background:#fee2e2;color:#991b1b">Never serviced</span>`
+          : kind === 'nodue'
+            ? `<span class="badge" style="background:#fef3c7;color:#92400e">No next due</span>`
+            : kind === 'overdue'
+              ? `<span class="badge sev-overdue">Overdue ${Math.abs(item.diff)}d</span>`
+              : `<span class="badge sev-soon">Due in ${item.diff}d</span>`;
+        return `<tr>
+          <td><span class="tag">${m.assetNum || '—'}</span></td>
+          <td style="font-family:'Courier New',monospace;font-size:11px;color:#374151;font-weight:700">${m.seqNum || '—'}</td>
+          <td><span class="tag">${m.countNum || '—'}</span></td>
+          <td><span class="tag tag-ser">${m.serialNum || '—'}</span></td>
+          <td><strong>${m.brand || ''}</strong> ${m.model || ''}</td>
+          <td>${factoryBadge(m.factory)}</td>
+          <td style="color:#64748b;font-size:12px;white-space:nowrap">${serviceText}</td>
+          <td style="color:#64748b;font-size:12px;white-space:nowrap">${dueText}</td>
+          <td>${statusHtml}</td>
+          <td>${can('addService') ? `<button class="btn btn-primary btn-xs" onclick="openAddService('${m.id}')">Log Service</button>` : '—'}</td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="10"><div class="empty" style="padding:24px"><p>No machines in this list</p></div></td></tr>`;
+
+      const pendingPanel = `<div class="tc" style="border-left:3px solid #185FA5">
+        <div class="tc-toolbar" style="align-items:flex-start">
+          <div>
+            <div class="tc-title">Machines Needing Service</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Use this to find machines with no service yet, overdue service, or due soon.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">
+            <span class="badge" style="background:#dbeafe;color:#1e40af">Fleet ${coverage.totalMachines}</span>
+            <span class="badge" style="background:#dcfce7;color:#14532d">Serviced ${coverage.servicedCount}</span>
+            <span class="badge" style="background:#fee2e2;color:#991b1b">Need service ${coverage.needsService.length}</span>
+          </div>
+        </div>
+        <div style="padding:14px 16px 4px">
+          <div class="stat-grid" style="margin-bottom:10px">
+            <div class="stat-card"><div class="sc-badge" style="background:#fee2e2;color:#991b1b">Never Serviced</div><div class="sc-count" style="color:#991b1b">${coverage.neverServiced.length}</div><div class="sc-label">No service record</div></div>
+            <div class="stat-card"><div class="sc-badge" style="background:#fee2e2;color:#991b1b">Overdue</div><div class="sc-count" style="color:#991b1b">${coverage.overdue.length}</div><div class="sc-label">Past next due date</div></div>
+            <div class="stat-card"><div class="sc-badge" style="background:#fef9c3;color:#713f12">Due Soon</div><div class="sc-count" style="color:#713f12">${coverage.dueSoon.length}</div><div class="sc-label">Within 30 days</div></div>
+            <div class="stat-card"><div class="sc-badge" style="background:#fef3c7;color:#92400e">Review Needed</div><div class="sc-count" style="color:#92400e">${coverage.noDueDate.length}</div><div class="sc-label">No next due date</div></div>
+          </div>
+        </div>
+        <div style="padding:0 16px 16px">
+          <div class="tc" style="margin-bottom:14px">
+            <div class="tc-toolbar"><span class="tc-title">Never Serviced Machines (${coverage.neverServiced.length})</span></div>
+            <div class="tw"><table><thead><tr><th>Asset #</th><th style="color:#185FA5">Seq #</th><th>Count #</th><th style="color:#185FA5">Serial #</th><th style="color:#185FA5">Machine</th><th>Factory</th><th>Last Service</th><th>Next Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${pendingRows(coverage.neverServiced, 'never')}</tbody></table></div>
+            ${coverage.neverServiced.length > 12 ? `<div class="pgn"><div class="pgn-info">Showing first 12 of ${coverage.neverServiced.length} never serviced machines. Use search/factory filter to narrow the list.</div></div>` : ''}
+          </div>
+          <div class="tc" style="margin-bottom:14px">
+            <div class="tc-toolbar"><span class="tc-title">Overdue Machines (${coverage.overdue.length})</span></div>
+            <div class="tw"><table><thead><tr><th>Asset #</th><th style="color:#185FA5">Seq #</th><th>Count #</th><th style="color:#185FA5">Serial #</th><th style="color:#185FA5">Machine</th><th>Factory</th><th>Last Service</th><th>Next Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${pendingRows(coverage.overdue, 'overdue')}</tbody></table></div>
+            ${coverage.overdue.length > 12 ? `<div class="pgn"><div class="pgn-info">Showing first 12 of ${coverage.overdue.length} overdue machines.</div></div>` : ''}
+          </div>
+          <div class="tc" style="margin-bottom:14px">
+            <div class="tc-toolbar"><span class="tc-title">Due Soon Machines (${coverage.dueSoon.length})</span></div>
+            <div class="tw"><table><thead><tr><th>Asset #</th><th style="color:#185FA5">Seq #</th><th>Count #</th><th style="color:#185FA5">Serial #</th><th style="color:#185FA5">Machine</th><th>Factory</th><th>Last Service</th><th>Next Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${pendingRows(coverage.dueSoon, 'soon')}</tbody></table></div>
+            ${coverage.dueSoon.length > 12 ? `<div class="pgn"><div class="pgn-info">Showing first 12 of ${coverage.dueSoon.length} machines due soon.</div></div>` : ''}
+          </div>
+          <div class="tc">
+            <div class="tc-toolbar"><span class="tc-title">Missing Next Due Date (${coverage.noDueDate.length})</span></div>
+            <div class="tw"><table><thead><tr><th>Asset #</th><th style="color:#185FA5">Seq #</th><th>Count #</th><th style="color:#185FA5">Serial #</th><th style="color:#185FA5">Machine</th><th>Factory</th><th>Last Service</th><th>Next Due</th><th>Status</th><th>Action</th></tr></thead><tbody>${pendingRows(coverage.noDueDate, 'nodue')}</tbody></table></div>
+            ${coverage.noDueDate.length > 12 ? `<div class="pgn"><div class="pgn-info">Showing first 12 of ${coverage.noDueDate.length} machines missing a next due date.</div></div>` : ''}
+          </div>
+        </div>
+      </div>`;
+
       const rows = pageRecords.length ? pageRecords.map(r => {
         const st = getSvcStatus(r.nextDueDate);
         return `<tr>
@@ -3748,10 +4073,12 @@
 
       return `
     <div class="ph">
-      <div class="ph-left"><h2>Service Records</h2><p>${APP.serviceRecords.length} records · ${alerts.filter(a => a.severity === 'overdue').length} overdue</p></div>
+      <div class="ph-left"><h2>Service Records</h2><p>${records.length} current records · ${coverage.neverServiced.length} never serviced · ${alerts.filter(a => a.severity === 'overdue').length} overdue</p></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary btn-sm" onclick="exportServiceExcel()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M8 12l4 4 4-4M12 8v8"/></svg>Export Excel</button>
+        <button class="btn btn-secondary btn-sm" onclick="nav('pending')">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01"/><path d="M10.29 3.86l-7.5 13A2 2 0 004.53 20h14.94a2 2 0 001.74-3.14l-7.5-13a2 2 0 00-3.48 0z"/></svg>Machines Needing Service</button>
         ${can('addService') ? `<button class="btn btn-primary btn-sm" onclick="openAddService('')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Service Record</button>`: ''}
       </div>
@@ -3935,7 +4262,7 @@
 
     function exportServiceExcel() {
       // Apply same filters currently active in the Service Records view
-      let list = [...APP.serviceRecords];
+      let list = getLatestServiceRecords();
       if (APP.filterFactory !== 'all') list = list.filter(r => r.factory === APP.filterFactory);
       if (APP.search) { const q = APP.search.toLowerCase(); list = list.filter(r => (r.assetNum||'').toLowerCase().includes(q)||(r.seqNum||'').toLowerCase().includes(q)||(r.countNum||'').toLowerCase().includes(q)||(r.serialNum||'').toLowerCase().includes(q)||(r.brand||'').toLowerCase().includes(q)||(r.model||'').toLowerCase().includes(q)); }
       const label = APP.filterFactory !== 'all' ? `_${APP.filterFactory.replace(/\s/g,'_')}` : '_All';
@@ -3946,8 +4273,10 @@
     function exportAllExcel() {
       const machines = APP.machines.map(m => ({ 'Asset #': m.assetNum, 'Seq #': m.seqNum, 'Brand': m.brand, 'Model': m.model, 'Serial #': m.serialNum, 'Description': m.description, 'Factory': m.factory, 'Status': m.status || 'Active', 'Date Added': fmtDate(m.addedAt) }));
       const transfers = APP.transfers.map(t => ({ 'Asset #': t.assetNum, 'Serial #': t.serialNum, 'Brand': t.brand, 'Model': t.model, 'From Factory': t.fromFactory, 'To Factory': t.toFactory, 'Date': fmtDate(getTransferDateVal(t)), 'Transferred By': t.transferredBy, 'Reason': t.reason || '' }));
-      const service = APP.serviceRecords.map(r => ({ 'Asset #': r.assetNum, 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Service Type': r.serviceType, 'Technician': r.technician || '', 'Next Due Date': fmtDate(r.nextDueDate), 'Cost (LKR)': r.cost || 0 }));
-      dlExcel([{ name: 'Machines', data: machines }, { name: 'Transfer Logs', data: transfers }, { name: 'Service Records', data: service }], 'sm_inventory_export.xlsx');
+      const service = getLatestServiceRecords().map(r => ({ 'Asset #': r.assetNum, 'Serial #': r.serialNum, 'Brand': r.brand, 'Model': r.model, 'Factory': r.factory, 'Service Date': fmtDate(r.serviceDate), 'Service Type': r.serviceType, 'Technician': r.technician || '', 'Next Due Date': fmtDate(r.nextDueDate), 'Cost (LKR)': r.cost || 0 }));
+      const pendingCoverage = getServiceCoverage();
+      const pending = pendingCoverage.needsService.map(item => ({ 'Asset #': item.machine.assetNum || '', 'Serial #': item.machine.serialNum || '', 'Brand': item.machine.brand || '', 'Model': item.machine.model || '', 'Factory': item.machine.factory || '', 'Last Service': item.latestService ? fmtDate(item.latestService.serviceDate) : 'Never', 'Next Due Date': item.latestService ? fmtDate(item.latestService.nextDueDate) : '—', 'Status': !item.latestService ? 'Never Serviced' : item.reason === 'No next due date set' ? 'Missing Next Due Date' : (item.diff < 0 ? 'Overdue' : 'Due Soon') }));
+      dlExcel([{ name: 'Machines', data: machines }, { name: 'Transfer Logs', data: transfers }, { name: 'Service Records', data: service }, { name: 'Pending Service', data: pending }], 'sm_inventory_export.xlsx');
     }
 
     function dlExcel(sheets, filename) {
